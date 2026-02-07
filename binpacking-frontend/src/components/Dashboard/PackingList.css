@@ -1,0 +1,85 @@
+.packing-list {
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  
+  .packing-list.empty {
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+  }
+  
+  .list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: #f8fafc;
+  }
+  
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .stats-bar {
+    display: flex;
+    gap: 8px;
+    padding: 16px 24px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  
+  .layer-section {
+    border-bottom: 1px solid #e2e8f0;
+  }
+  
+  .layer-title {
+    padding: 12px 24px;
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+  }
+  
+  .instruction-item {
+    padding: 8px 24px !important;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  
+  .instruction-item:hover {
+    background-color: #f8fafc;
+  }
+  
+  .item-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+  }
+  
+  .instruction-step {
+    padding: 12px 24px !important;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  
+  .instruction-step:nth-child(odd) {
+    background-color: #fafafa;
+  }
+  
+  .export-section {
+    padding: 16px 24px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+  }
+  
+  .instructions-list {
+    max-height: 400px;
+    overflow-y: auto;
+  }

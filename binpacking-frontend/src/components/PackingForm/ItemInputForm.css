@@ -1,0 +1,127 @@
+.item-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Card styling */
+.MuiCard-root {
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+  border: 1px solid #e0e0e0;
+}
+
+.MuiCard-root:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Table styling */
+.MuiTable-root {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.MuiTableHead-root {
+  background-color: #f8fafc;
+}
+
+.MuiTableCell-head {
+  font-weight: 600 !important;
+  color: #334155 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  padding: 12px 16px !important;
+}
+
+.MuiTableCell-body {
+  padding: 10px 16px !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.MuiTableRow-root:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Text field styling in table */
+.MuiTableRow-root .MuiTextField-root {
+  background-color: transparent;
+}
+
+.MuiTableRow-root .MuiInputBase-input {
+  padding: 4px 0 !important;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.MuiTableRow-root .MuiTextField-root:first-child .MuiInputBase-input {
+  text-align: left;
+}
+
+/* Button styling */
+.MuiButton-root {
+  text-transform: none !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+}
+
+.MuiButton-containedPrimary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3) !important;
+}
+
+.MuiButton-containedPrimary:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Chip styling */
+.MuiChip-root {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+}
+
+/* Icon button styling */
+.MuiIconButton-root {
+  border-radius: 6px !important;
+  padding: 6px !important;
+}
+
+/* Template buttons */
+.MuiStack-root .MuiButton-root {
+  border-radius: 8px !important;
+  padding: 6px 12px !important;
+  font-size: 0.875rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .item-input-container {
+    gap: 12px;
+  }
+  
+  .MuiCardContent-root {
+    padding: 16px !important;
+  }
+  
+  .MuiTableCell-root {
+    padding: 8px 12px !important;
+  }
+}
+
+/* Scrollbar styling for table */
+.MuiTableContainer-root::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.MuiTableContainer-root::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.MuiTableContainer-root::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.MuiTableContainer-root::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

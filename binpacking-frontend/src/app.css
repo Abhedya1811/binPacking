@@ -1,0 +1,129 @@
+.app-container {
+  min-height: 100vh;
+  background: #f5f5f5;
+  overflow: hidden;
+}
+
+.main-content {
+  display: flex;
+  height: calc(100vh - 80px);
+}
+
+.content-container {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Configuration Panel */
+.config-panel {
+  background: white;
+  z-index: 10;
+}
+
+.config-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Full Visualization */
+.full-visualization {
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+}
+
+/* Make BinVisualizer canvas fill the container */
+.full-visualization canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Resizer Handle */
+.resizer-handle {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.resizer-handle:hover::after,
+.resizer-handle:active::after {
+  background-color: white !important;
+}
+
+/* Prevent text selection during resize */
+body.resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* Visualization Controls */
+.visualization-controls {
+  z-index: 100;
+}
+
+.visualization-controls button {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Results Panel */
+.results-panel {
+  background: white;
+  z-index: 5;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: fixed;
+  top: 80px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+/* Scrollbar Styling */
+.config-content::-webkit-scrollbar,
+.results-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.config-content::-webkit-scrollbar-track,
+.results-panel::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.config-content::-webkit-scrollbar-thumb,
+.results-panel::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.config-content::-webkit-scrollbar-thumb:hover,
+.results-panel::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .config-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+  
+  .resizer-handle {
+    display: none;
+  }
+}
