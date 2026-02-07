@@ -24,7 +24,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
   const isMountedRef = useRef(true);
   const [viewMode, setViewMode] = useState('3D');
   const [outOfBoundsItems, setOutOfBoundsItems] = useState([]);
-  const [showUnpackedArea, setShowUnpackedArea] = useState(true);
+  const [showUnpackedArea, setShowUnpackedArea] = useState(true); // Default to true to show unpacked
 
   console.log('🎯 BinVisualizer received:', {
     hasPackingResult: !!packingResult,
@@ -160,18 +160,18 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       try {
         // SCENE
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf0f4f8);
+        scene.background = new THREE.Color(0xf8fafc);
         sceneRef.current = scene;
 
-        // CAMERA
+        // CAMERA - FIXED: Better starting position
         const camera = new THREE.PerspectiveCamera(
           60,
           canvasRef.current.clientWidth / canvasRef.current.clientHeight,
           0.1,
           1000
         );
-        camera.position.set(25, 20, 25);
-        camera.lookAt(0, 5, 0);
+        camera.position.set(20, 15, 20);
+        camera.lookAt(0, 4, 0);
         cameraRef.current = camera;
 
         // RENDERER
@@ -208,21 +208,14 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
 
-        // Add a second directional light from the other side
         const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
         directionalLight2.position.set(-20, 20, -20);
         scene.add(directionalLight2);
 
-        // GRID - Larger grid for both container and unpacked area
-        const gridSize = 50;
-        const gridHelper = new THREE.GridHelper(gridSize, gridSize, 0xcccccc, 0xcccccc);
+        // GRID
+        const gridHelper = new THREE.GridHelper(50, 50, 0xcccccc, 0xcccccc);
         gridHelper.position.y = 0;
         scene.add(gridHelper);
-
-        // Add axes helper for better orientation
-        const axesHelper = new THREE.AxesHelper(10);
-        axesHelper.position.y = 0.1;
-        scene.add(axesHelper);
 
         console.log('✅ Three.js initialized');
         setIsInitialized(true);
@@ -270,7 +263,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       
       raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
       
-      // Combine both packed and unpacked items for hover detection
       const allItems = [...itemMeshesRef.current, ...unpackedMeshesRef.current];
       const intersects = raycasterRef.current.intersectObjects(allItems);
       
@@ -287,7 +279,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
           reason: item.userData.reason
         });
         
-        // Highlight hovered item
         allItems.forEach(obj => {
           if (obj.material) {
             if (obj === item) {
@@ -361,41 +352,78 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     };
   }, [cleanupScene]);
 
-  // Update camera based on view mode
+  // Update camera based on view mode - FIXED
   useEffect(() => {
-    if (!cameraRef.current || !controlsRef.current) return;
+    if (!cameraRef.current || !controlsRef.current || !packingResult) return;
     
     const containerWidth = parseFloat(packingResult?.visualization_data?.container?.width) || 17.0;
     const containerHeight = parseFloat(packingResult?.visualization_data?.container?.height) || 8.0;
+    const containerDepth = parseFloat(packingResult?.visualization_data?.container?.depth) || 10.0;
     
-    switch(viewMode) {
-      case 'Top':
-        cameraRef.current.position.set(0, 40, 0);
-        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, 0);
-        controlsRef.current.enableRotate = false;
-        controlsRef.current.target.set(containerWidth/2, containerHeight/2, 0);
-        break;
-      case 'Front':
-        cameraRef.current.position.set(containerWidth/2, containerHeight/2, 40);
-        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, 0);
-        controlsRef.current.enableRotate = false;
-        controlsRef.current.target.set(containerWidth/2, containerHeight/2, 0);
-        break;
-      case 'Side':
-        cameraRef.current.position.set(40, containerHeight/2, 0);
-        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, 0);
-        controlsRef.current.enableRotate = false;
-        controlsRef.current.target.set(containerWidth/2, containerHeight/2, 0);
-        break;
-      default: // '3D'
-        cameraRef.current.position.set(25, 20, 25);
-        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, 0);
-        controlsRef.current.enableRotate = true;
-        controlsRef.current.target.set(containerWidth/2, containerHeight/2, 0);
+    const unpackedItems = packingResult?.visualization_data?.unpacked_items || [];
+    const hasUnpackedItems = unpackedItems.length > 0;
+    
+    // If unpacked items exist and we're showing them, adjust view to show both
+    if (hasUnpackedItems && showUnpackedArea) {
+      const unpackedAreaWidth = 30;
+      const totalWidth = containerWidth + unpackedAreaWidth + 15;
+      
+      switch(viewMode) {
+        case 'Top':
+          cameraRef.current.position.set(totalWidth / 2, 40, 0);
+          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
+          break;
+        case 'Front':
+          cameraRef.current.position.set(totalWidth / 2, containerHeight/2, 40);
+          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
+          break;
+        case 'Side':
+          cameraRef.current.position.set(40, containerHeight/2, containerDepth/2);
+          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
+          break;
+        default: // '3D'
+          cameraRef.current.position.set(totalWidth * 0.8, containerHeight * 1.5, totalWidth * 0.6);
+          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = true;
+          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
+      }
+    } else {
+      // Only show container
+      switch(viewMode) {
+        case 'Top':
+          cameraRef.current.position.set(containerWidth/2, 40, containerDepth/2);
+          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
+          break;
+        case 'Front':
+          cameraRef.current.position.set(containerWidth/2, containerHeight/2, 40);
+          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
+          break;
+        case 'Side':
+          cameraRef.current.position.set(40, containerHeight/2, containerDepth/2);
+          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = false;
+          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
+          break;
+        default: // '3D'
+          cameraRef.current.position.set(25, 20, 25);
+          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
+          controlsRef.current.enableRotate = true;
+          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
+      }
     }
     
     controlsRef.current.update();
-  }, [viewMode, packingResult]);
+  }, [viewMode, packingResult, showUnpackedArea]);
 
   // Helper function to handle rotation dimensions
   const getRotatedDimensions = (width, height, depth, rotX, rotY, rotZ) => {
@@ -420,7 +448,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     return { width: w, height: h, depth: d };
   };
 
-  // Create visualization
+  // Create visualization - FIXED CAMERA ALIGNMENT
   useEffect(() => {
     if (!packingResult || !sceneRef.current || !isInitialized) {
       console.log('⚠️ Cannot create visualization:', {
@@ -464,7 +492,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     const containerWidth = parseFloat(containerData.width) || 17.0;
     const containerHeight = parseFloat(containerData.height) || 8.0;
     const containerDepth = parseFloat(containerData.depth) || 10.0;
-    const containerColor = containerData.color || '#3B82F6';
 
     console.log('📦 Container dimensions:', {
       width: containerWidth,
@@ -490,7 +517,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     // Container mesh (transparent)
     const containerGeometry = new THREE.BoxGeometry(containerWidth, containerHeight, containerDepth);
     const containerMaterial = new THREE.MeshPhongMaterial({
-      color: new THREE.Color(containerColor),
+      color: 0x3B82F6,
       transparent: true,
       opacity: 0.03,
       side: THREE.DoubleSide,
@@ -516,35 +543,37 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
 
     sceneRef.current.add(containerGroupRef.current);
 
-    // Create unpacked area group (positioned to the right of container)
-    unpackedAreaGroupRef.current = new THREE.Group();
-    
-    // Calculate unpacked area position (to the right of container with some spacing)
-    const unpackedAreaX = containerWidth + 15; // 15 units spacing
-    
-    // Unpacked area visual representation (dashed box)
-    const unpackedAreaWidth = 30;  // Fixed width for unpacked area
-    const unpackedAreaHeight = containerHeight;
-    const unpackedAreaDepth = Math.max(containerDepth, 15);
-    
-    const unpackedAreaGeometry = new THREE.BoxGeometry(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth);
-    const unpackedAreaMaterial = new THREE.MeshPhongMaterial({
-      color: 0x9ca3af,
-      transparent: true,
-      opacity: 0.02,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    
-    const unpackedAreaMesh = new THREE.Mesh(unpackedAreaGeometry, unpackedAreaMaterial);
-    unpackedAreaMesh.position.set(unpackedAreaX, unpackedAreaHeight / 2, unpackedAreaDepth / 2);
-    unpackedAreaMesh.userData.isUnpackedArea = true;
-    unpackedAreaGroupRef.current.add(unpackedAreaMesh);
+    // Create unpacked area group only if there are unpacked items AND showUnpackedArea is true
+    unpackedAreaGroupRef.current = null;
+    if (unpackedItems.length > 0 && showUnpackedArea) {
+      unpackedAreaGroupRef.current = new THREE.Group();
+      
+      // Calculate unpacked area position (to the right of container with some spacing)
+      const unpackedAreaX = containerWidth + 15;
+      const unpackedAreaWidth = 30;
+      const unpackedAreaHeight = containerHeight;
+      const unpackedAreaDepth = Math.max(containerDepth, 15);
+      
+      // Unpacked area visual representation (dashed box)
+      const unpackedAreaGeometry = new THREE.BoxGeometry(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth);
+      const unpackedAreaMaterial = new THREE.MeshPhongMaterial({
+        color: 0x9ca3af,
+        transparent: true,
+        opacity: 0.02,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+      
+      const unpackedAreaMesh = new THREE.Mesh(unpackedAreaGeometry, unpackedAreaMaterial);
+      unpackedAreaMesh.position.set(unpackedAreaX, unpackedAreaHeight / 2, unpackedAreaDepth / 2);
+      unpackedAreaMesh.userData.isUnpackedArea = true;
+      unpackedAreaGroupRef.current.add(unpackedAreaMesh);
 
-    // Unpacked area wireframe (dashed lines)
-    createDashedBox(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth, unpackedAreaX, unpackedAreaHeight / 2, unpackedAreaDepth / 2, 0x6b7280);
-    
-    sceneRef.current.add(unpackedAreaGroupRef.current);
+      // Unpacked area wireframe (dashed lines)
+      createDashedBox(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth, unpackedAreaX, unpackedAreaHeight / 2, unpackedAreaDepth / 2, 0x6b7280);
+      
+      sceneRef.current.add(unpackedAreaGroupRef.current);
+    }
 
     // Get packed items data
     let items = [];
@@ -570,32 +599,23 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         [posX, posY, posZ] = item.position.map(p => parseFloat(p) || 0);
         [rotX, rotY, rotZ] = item.rotation.map(r => parseFloat(r) || 0);
         
-        // Use color from backend response
-        color = item.color || '#FF6B6B';
+        color = item.color || '#10b981'; // Changed to green for packed items
         id = item.id || `item_${index}`;
         name = item.original_name || item.name || id;
 
-        // Validate dimensions
         width = Math.max(width, 0.01);
         height = Math.max(height, 0.01);
         depth = Math.max(depth, 0.01);
 
-        // Get rotated dimensions
         const rotatedDims = getRotatedDimensions(width, height, depth, rotX, rotY, rotZ);
         const effectiveWidth = rotatedDims.width;
         const effectiveHeight = rotatedDims.height;
         const effectiveDepth = rotatedDims.depth;
 
-        // CRITICAL: Packing algorithm returns position from bottom-left-back corner
-        // For visualization, we need to shift from container corner
-        // But we'll keep the original coordinates for now
-        
-        // Position relative to container corner (as provided by algorithm)
         const centerX = posX + effectiveWidth / 2;
         const centerY = posY + effectiveHeight / 2;
         const centerZ = posZ + effectiveDepth / 2;
 
-        // Create mesh
         const geometry = new THREE.BoxGeometry(width, height, depth);
         const material = new THREE.MeshPhongMaterial({
           color: new THREE.Color(color),
@@ -607,10 +627,8 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         
         const mesh = new THREE.Mesh(geometry, material);
         
-        // Set position
         mesh.position.set(centerX, centerY, centerZ);
         
-        // Apply rotation in radians
         mesh.rotation.set(
           THREE.MathUtils.degToRad(rotX),
           THREE.MathUtils.degToRad(rotY),
@@ -620,7 +638,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         
-        // Store metadata
         mesh.userData.isPackedItem = true;
         mesh.userData.itemName = name || `Item ${index}`;
         mesh.userData.dimensions = { width, height, depth };
@@ -640,96 +657,95 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       }
     });
 
-    // Create unpacked items
-    console.log(`📦 Creating ${unpackedItems.length} unpacked items`);
-    
-    // Organize unpacked items in a grid layout
-    const gridCellSize = 10; // Space between items
-    const itemsPerRow = 3;
-    
-    unpackedItems.forEach((item, index) => {
-      try {
-        let width, height, depth, color, id, name, reason;
-        
-        [width, height, depth] = item.dimensions.map(d => parseFloat(d) || 0.5);
-        
-        // Use color from backend response or default
-        color = item.color || '#ef4444';
-        id = item.id || `unpacked_${index}`;
-        name = item.name || id;
-        reason = item.reason || 'No space available';
+    // Create unpacked items only if showUnpackedArea is true
+    if (showUnpackedArea && unpackedItems.length > 0) {
+      console.log(`📦 Creating ${unpackedItems.length} unpacked items`);
+      
+      const unpackedAreaX = containerWidth + 15;
+      const unpackedAreaWidth = 30;
+      const unpackedAreaDepth = Math.max(containerDepth, 15);
+      const gridCellSize = 8;
+      const itemsPerRow = 3;
+      
+      unpackedItems.forEach((item, index) => {
+        try {
+          let width, height, depth, color, id, name, reason;
+          
+          [width, height, depth] = item.dimensions.map(d => parseFloat(d) || 0.5);
+          
+          color = item.color || '#ef4444';
+          id = item.id || `unpacked_${index}`;
+          name = item.name || id;
+          reason = item.reason || 'No space available';
 
-        // Validate dimensions
-        width = Math.max(width, 0.01);
-        height = Math.max(height, 0.01);
-        depth = Math.max(depth, 0.01);
+          width = Math.max(width, 0.01);
+          height = Math.max(height, 0.01);
+          depth = Math.max(depth, 0.01);
 
-        // Calculate grid position within unpacked area
-        const row = Math.floor(index / itemsPerRow);
-        const col = index % itemsPerRow;
-        
-        // Position within unpacked area
-        const startX = unpackedAreaX - unpackedAreaWidth / 2 + gridCellSize / 2;
-        const startZ = unpackedAreaDepth / 2 - gridCellSize / 2;
-        
-        const posX = startX + col * gridCellSize;
-        const posZ = startZ - row * gridCellSize;
-        const posY = height / 2; // Place on ground
+          const row = Math.floor(index / itemsPerRow);
+          const col = index % itemsPerRow;
+          
+          const startX = unpackedAreaX - unpackedAreaWidth / 2 + gridCellSize / 2;
+          const startZ = unpackedAreaDepth / 2 - gridCellSize / 2;
+          
+          const posX = startX + col * gridCellSize;
+          const posZ = startZ - row * gridCellSize;
+          const posY = height / 2;
 
-        // Create mesh
-        const geometry = new THREE.BoxGeometry(width, height, depth);
-        const material = new THREE.MeshPhongMaterial({
-          color: new THREE.Color(color),
-          transparent: true,
-          opacity: 0.7,
-          shininess: 30,
-          specular: new THREE.Color(0x111111)
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
-        
-        // Set position
-        mesh.position.set(posX, posY, posZ);
-        
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        
-        // Store metadata
-        mesh.userData.isUnpackedItem = true;
-        mesh.userData.itemName = name;
-        mesh.userData.dimensions = { width, height, depth };
-        mesh.userData.originalColor = color;
-        mesh.userData.originalPosition = { x: posX, y: posY, z: posZ };
-        mesh.userData.isOutOfBounds = false;
-        mesh.userData.isUnpacked = true;
-        mesh.userData.reason = reason;
-        
-        sceneRef.current.add(mesh);
-        unpackedMeshesRef.current.push(mesh);
+          const geometry = new THREE.BoxGeometry(width, height, depth);
+          const material = new THREE.MeshPhongMaterial({
+            color: new THREE.Color(color),
+            transparent: true,
+            opacity: 0.7,
+            shininess: 30,
+            specular: new THREE.Color(0x111111)
+          });
+          
+          const mesh = new THREE.Mesh(geometry, material);
+          
+          mesh.position.set(posX, posY, posZ);
+          
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          
+          mesh.userData.isUnpackedItem = true;
+          mesh.userData.itemName = name;
+          mesh.userData.dimensions = { width, height, depth };
+          mesh.userData.originalColor = color;
+          mesh.userData.originalPosition = { x: posX, y: posY, z: posZ };
+          mesh.userData.isOutOfBounds = false;
+          mesh.userData.isUnpacked = true;
+          mesh.userData.reason = reason;
+          
+          sceneRef.current.add(mesh);
+          unpackedMeshesRef.current.push(mesh);
 
-      } catch (error) {
-        console.error(`❌ Error creating unpacked item ${index}:`, error);
-      }
-    });
+        } catch (error) {
+          console.error(`❌ Error creating unpacked item ${index}:`, error);
+        }
+      });
+    }
 
-    // Create a separator line between container and unpacked area
-    const separatorGeometry = new THREE.BufferGeometry();
-    const separatorVertices = new Float32Array([
-      containerWidth + 5, 0, 0,
-      containerWidth + 5, containerHeight + 5, 0
-    ]);
-    separatorGeometry.setAttribute('position', new THREE.BufferAttribute(separatorVertices, 3));
-    
-    const separatorMaterial = new THREE.LineDashedMaterial({
-      color: 0x64748b,
-      dashSize: 1,
-      gapSize: 0.5,
-      linewidth: 1
-    });
-    
-    const separatorLine = new THREE.Line(separatorGeometry, separatorMaterial);
-    separatorLine.computeLineDistances();
-    sceneRef.current.add(separatorLine);
+    // Create a separator line between container and unpacked area if showing both
+    if (unpackedItems.length > 0 && showUnpackedArea) {
+      const separatorGeometry = new THREE.BufferGeometry();
+      const separatorVertices = new Float32Array([
+        containerWidth + 5, 0, 0,
+        containerWidth + 5, containerHeight + 5, 0
+      ]);
+      separatorGeometry.setAttribute('position', new THREE.BufferAttribute(separatorVertices, 3));
+      
+      const separatorMaterial = new THREE.LineDashedMaterial({
+        color: 0x64748b,
+        dashSize: 1,
+        gapSize: 0.5,
+        linewidth: 1
+      });
+      
+      const separatorLine = new THREE.Line(separatorGeometry, separatorMaterial);
+      separatorLine.computeLineDistances();
+      sceneRef.current.add(separatorLine);
+    }
 
     // Set debug info
     const packedCount = items.length;
@@ -738,16 +754,27 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     
     setDebugInfo(`Packed: ${packedCount} | Unpacked: ${unpackedCount} | Utilization: ${efficiency.toFixed(1)}%`);
 
-    // Adjust camera to show both areas
+    // Adjust camera to show appropriate view
     if (cameraRef.current && controlsRef.current) {
-      // Calculate total width including both areas
-      const totalWidth = containerWidth + unpackedAreaWidth + 15; // 15 spacing
-      const maxHeight = Math.max(containerHeight, unpackedAreaHeight);
+      // Recalculate based on current visibility
+      const unpackedItems = packingResult?.visualization_data?.unpacked_items || [];
+      const hasUnpackedItems = unpackedItems.length > 0;
       
-      cameraRef.current.position.set(totalWidth / 2, maxHeight * 1.5, totalWidth * 0.8);
-      cameraRef.current.lookAt(totalWidth / 2, maxHeight/2, 0);
-      
-      controlsRef.current.target.set(totalWidth / 2, maxHeight/2, 0);
+      if (hasUnpackedItems && showUnpackedArea) {
+        const unpackedAreaWidth = 30;
+        const totalWidth = containerWidth + unpackedAreaWidth + 15;
+        const maxHeight = Math.max(containerHeight, 8);
+        
+        cameraRef.current.position.set(totalWidth * 0.8, maxHeight * 1.5, totalWidth * 0.6);
+        cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
+        
+        controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
+      } else {
+        cameraRef.current.position.set(25, 20, 25);
+        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
+        
+        controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
+      }
       controlsRef.current.update();
     }
 
@@ -771,7 +798,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       isRenderingRef.current = true;
     }
 
-  }, [packingResult, isInitialized, cleanupScene]);
+  }, [packingResult, isInitialized, cleanupScene, showUnpackedArea]);
 
   // Helper function to create dashed box
   const createDashedBox = (width, height, depth, centerX, centerY, centerZ, color) => {
@@ -779,21 +806,17 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     const halfHeight = height / 2;
     const halfDepth = depth / 2;
     
-    // Create 12 edges for the box
     const edges = [
-      // Bottom edges
       [[-halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, -halfDepth]],
       [[halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, halfDepth]],
       [[halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, halfDepth]],
       [[-halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, -halfDepth]],
       
-      // Top edges
       [[-halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
       [[halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, halfDepth]],
       [[halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, halfDepth]],
       [[-halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, -halfDepth]],
       
-      // Vertical edges
       [[-halfWidth, -halfHeight, -halfDepth], [-halfWidth, halfHeight, -halfDepth]],
       [[halfWidth, -halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
       [[halfWidth, -halfHeight, halfDepth], [halfWidth, halfHeight, halfDepth]],
@@ -847,9 +870,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
   // Toggle unpacked area visibility
   const toggleUnpackedArea = () => {
     setShowUnpackedArea(!showUnpackedArea);
-    if (unpackedAreaGroupRef.current) {
-      unpackedAreaGroupRef.current.visible = !showUnpackedArea;
-    }
   };
 
   // Error display
@@ -861,7 +881,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f4f8',
+        background: '#f8fafc',
         flexDirection: 'column',
         gap: '20px'
       }}>
@@ -884,7 +904,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f4f8',
+        background: '#f8fafc',
         flexDirection: 'column',
         gap: '20px'
       }}>
@@ -912,7 +932,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f4f8',
+        background: '#f8fafc',
         flexDirection: 'column',
         gap: '15px'
       }}>
@@ -932,16 +952,16 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         width: '100%', 
         height: '600px', 
         position: 'relative',
-        background: '#f0f4f8',
+        background: '#f8fafc',
         borderRadius: '8px',
         overflow: 'hidden',
         border: '1px solid #e2e8f0'
       }}
     >
-      {/* Stats */}
+      {/* Stats - SIMPLIFIED (removed legend card) */}
       <div style={{
         position: 'absolute',
-        top: '70px',
+        top: '12px',
         left: '12px',
         background: 'rgba(255, 255, 255, 0.95)',
         padding: '12px 16px',
@@ -957,9 +977,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
           display: 'flex', 
           alignItems: 'center', 
           gap: '8px', 
-          marginBottom: '8px',
-          paddingBottom: '8px',
-          borderBottom: '1px solid rgba(203, 213, 225, 0.3)'
+          marginBottom: '8px'
         }}>
           <span style={{ 
             fontSize: '16px',
@@ -988,7 +1006,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
           }}>{unpackedCount}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span style={{ fontWeight: '600', color: '#475569', minWidth: '80px' }}>Efficiency:</span>
+          <span style={{ fontWeight: '600', color: '#475569', minWidth: '80px' }}>Utilization:</span>
           <span style={{ 
             color: efficiency > 70 ? '#10b981' : 
                    efficiency > 30 ? '#f59e0b' : '#ef4444',
@@ -1002,17 +1020,10 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
             marginTop: '6px',
             paddingTop: '6px',
             borderTop: '1px solid rgba(239, 68, 68, 0.3)',
-            fontSize: '12px'
+            fontSize: '12px',
+            color: '#ef4444'
           }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '6px',
-              color: '#ef4444',
-              marginBottom: '4px'
-            }}>
-              <span style={{ fontWeight: '600' }}>⚠️ {unpackedCount} items couldn't fit</span>
-            </div>
+            <span style={{ fontWeight: '600' }}>⚠️ {unpackedCount} items couldn't fit</span>
           </div>
         )}
       </div>
@@ -1021,7 +1032,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       {hoveredItem && (
         <div style={{
           position: 'absolute',
-          top: '70px',
+          top: '12px',
           right: '12px',
           background: hoveredItem.isUnpacked ? 'rgba(239, 68, 68, 0.95)' : 'rgba(0, 0, 0, 0.9)',
           color: 'white',
@@ -1123,8 +1134,8 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         ))}
       </div>
 
-      {/* Toggle unpacked area button */}
-      {packingResult?.visualization_data?.unpacked_items?.length > 0 && (
+      {/* Toggle unpacked area button - ONLY if there are unpacked items */}
+      {unpackedCount > 0 && (
         <button
           onClick={toggleUnpackedArea}
           style={{
@@ -1170,50 +1181,30 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         <span>Drag to rotate • Scroll to zoom</span>
       </div>
       
-      {/* Legend */}
+      {/* Simple color indicators (not the card) */}
       <div style={{
         position: 'absolute',
-        top: '140px',
+        bottom: '50px',
         left: '12px',
-        background: 'rgba(255, 255, 255, 0.95)',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        fontSize: '11px',
-        color: '#475569',
-        border: '1px solid rgba(203, 213, 225, 0.6)',
-        zIndex: 100,
         display: 'flex',
-        flexDirection: 'column',
-        gap: '4px'
+        alignItems: 'center',
+        gap: '12px',
+        zIndex: 100
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '2px' }}></div>
-          <span>Container</span>
+          <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '2px', opacity: 0.1 }}></div>
+          <span style={{ fontSize: '11px', color: '#475569' }}>Container</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '2px' }}></div>
-          <span>Packed Items</span>
+          <span style={{ fontSize: '11px', color: '#475569' }}>Packed</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }}></div>
-          <span>Unpacked Items</span>
-        </div>
-      </div>
-      
-      {/* Debug info */}
-      <div style={{
-        position: 'absolute',
-        top: '180px',
-        left: '12px',
-        background: 'rgba(0, 0, 0, 0.7)',
-        color: outOfBoundsItems.length > 0 ? '#fca5a5' : '#90cdf4',
-        padding: '6px 10px',
-        borderRadius: '4px',
-        fontSize: '11px',
-        fontFamily: 'monospace',
-        zIndex: 90
-      }}>
-        {debugInfo || `Items: ${itemMeshesRef.current.length}`}
+        {unpackedCount > 0 && showUnpackedArea && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }}></div>
+            <span style={{ fontSize: '11px', color: '#475569' }}>Unpacked</span>
+          </div>
+        )}
       </div>
     </div>
   );

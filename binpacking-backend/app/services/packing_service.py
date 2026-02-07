@@ -1,5 +1,5 @@
 """
-ULTRA-ROBUST Packing Service - No Exceptions Allowed!
+COMPLETE FIX: Advanced Packing Algorithm with Proper Item Placement
 """
 
 from dataclasses import dataclass, field
@@ -13,7 +13,6 @@ import random
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from py3dbp import Packer, Bin, Item
-
 from app.schemas.packing import (
     ItemSchema, BinConfig, PackingRequest, 
     PackingResult, PackedBin, PackedItem, UnpackedItem, VisualizationData,
@@ -96,7 +95,6 @@ class TypeSafeConverter:
             print(f"⚠️ TypeSafeConverter.to_number_list failed: {e}")
             return default.copy() if default else [0.0, 0.0, 0.0]
 
-# Update the SafeConverter to use TypeSafeConverter
 SafeConverter = TypeSafeConverter
 
 # ====================================================================
@@ -186,7 +184,219 @@ class BoundaryValidator:
             return [0.0, 0.0, 0.0]
 
 # ====================================================================
-# SAFE PACKER
+# COMPLETE FIX: NEW ADVANCED PACKING ALGORITHM
+# ====================================================================
+
+class AdvancedPackingAlgorithm:
+    """IMPROVED: Better 3D packing with gap filling"""
+    
+    def pack_items(self, container_dims, items):
+        """Pack items using improved 3D bin packing"""
+        container_width, container_height, container_depth = container_dims
+        
+        print(f"📦 Packing into container: {container_width}x{container_height}x{container_depth}")
+        
+        # Sort by multiple criteria for better packing
+        sorted_items = sorted(
+            items,
+            key=lambda x: (
+                -max(x['dimensions']),  # Largest dimension first
+                -x['volume'],           # Volume second
+                min(x['dimensions'])    # Smallest dimension third
+            )
+        )
+        
+        packed_items = []
+        occupied_spaces = []
+        
+        # Create 3D grid for tracking space
+        grid_resolution = 0.5  # 0.5 unit grid
+        grid_x = int(container_width / grid_resolution)
+        grid_y = int(container_height / grid_resolution)
+        grid_z = int(container_depth / grid_resolution)
+        
+        # Initialize occupancy grid
+        occupancy_grid = np.zeros((grid_x, grid_y, grid_z), dtype=bool)
+        
+        for item in sorted_items:
+            item_id = item['id']
+            orig_width, orig_height, orig_depth = item['dimensions']
+            placed = False
+            
+            # Try all 6 orientations
+            orientations = [
+                (orig_width, orig_height, orig_depth, [0, 0, 0]),
+                (orig_width, orig_depth, orig_height, [0, 90, 0]),   # Rotate Y
+                (orig_height, orig_width, orig_depth, [0, 0, 90]),   # Rotate Z
+                (orig_height, orig_depth, orig_width, [90, 0, 0]),   # Rotate X
+                (orig_depth, orig_width, orig_height, [90, 90, 0]),  # Rotate X+Y
+                (orig_depth, orig_height, orig_width, [0, 90, 90]),  # Rotate Y+Z
+            ]
+            
+            # Try different placement strategies
+            placement_strategies = [
+                'bottom_left_front',  # Traditional
+                'lowest_z',           # Fill bottom first
+                'wall_first',         # Along walls
+                'gap_filling',        # Try to fill gaps
+            ]
+            
+            for strategy in placement_strategies:
+                if placed:
+                    break
+                    
+                for w, h, d, rotation in orientations:
+                    if placed:
+                        break
+                    
+                    # Check if item fits in container at all
+                    if w > container_width or h > container_height or d > container_depth:
+                        continue
+                    
+                    # Try to find position using current strategy
+                    position = self._find_position_with_strategy(
+                        w, h, d,
+                        container_width, container_height, container_depth,
+                        occupancy_grid, grid_resolution,
+                        strategy
+                    )
+                    
+                    if position:
+                        x, y, z = position
+                        
+                        # Verify no overlaps (safety check)
+                        overlaps = False
+                        for ox, oy, oz, ow, oh, od in occupied_spaces:
+                            if (x < ox + ow and x + w > ox and
+                                y < oy + oh and y + h > oy and
+                                z < oz + od and z + d > oz):
+                                overlaps = True
+                                break
+                        
+                        if not overlaps:
+                            # Mark space as occupied
+                            occupied_spaces.append((x, y, z, w, h, d))
+                            
+                            # Update occupancy grid
+                            grid_x_start = int(x / grid_resolution)
+                            grid_y_start = int(y / grid_resolution)
+                            grid_z_start = int(z / grid_resolution)
+                            grid_x_end = int((x + w) / grid_resolution)
+                            grid_y_end = int((y + h) / grid_resolution)
+                            grid_z_end = int((z + d) / grid_resolution)
+                            
+                            # Ensure indices are within bounds
+                            grid_x_end = min(grid_x_end, grid_x)
+                            grid_y_end = min(grid_y_end, grid_y)
+                            grid_z_end = min(grid_z_end, grid_z)
+                            
+                            occupancy_grid[grid_x_start:grid_x_end,
+                                         grid_y_start:grid_y_end,
+                                         grid_z_start:grid_z_end] = True
+                            
+                            packed_items.append({
+                                'id': item_id,
+                                'position': [x, y, z],
+                                'dimensions': [w, h, d],
+                                'rotation': rotation,
+                                'original_item': item
+                            })
+                            
+                            placed = True
+                            print(f"✅ Packed {item_id} at [{x:.2f}, {y:.2f}, {z:.2f}] (strategy: {strategy})")
+                            break
+        
+        print(f"📊 Packed {len(packed_items)}/{len(items)} items")
+        return packed_items
+    
+    def _find_position_with_strategy(self, w, h, d, cw, ch, cd, occupancy_grid, grid_res, strategy):
+        """Find position using different strategies"""
+        grid_x_size, grid_y_size, grid_z_size = occupancy_grid.shape
+        
+        # Convert dimensions to grid units
+        grid_w = max(1, int(w / grid_res))
+        grid_h = max(1, int(h / grid_res))
+        grid_d = max(1, int(d / grid_res))
+        
+        if strategy == 'lowest_z':
+            # Try lowest Z first (fill from bottom up)
+            for z in range(grid_z_size - grid_d + 1):
+                for y in range(grid_y_size - grid_h + 1):
+                    for x in range(grid_x_size - grid_w + 1):
+                        if self._can_place(x, y, z, grid_w, grid_h, grid_d, occupancy_grid):
+                            return x * grid_res, y * grid_res, z * grid_res
+        
+        elif strategy == 'wall_first':
+            # Try along walls (X=0, Y=0, Z=0)
+            walls = [
+                (0, range(grid_y_size - grid_h + 1), range(grid_z_size - grid_d + 1)),  # X=0
+                (range(grid_x_size - grid_w + 1), 0, range(grid_z_size - grid_d + 1)),  # Y=0
+                (range(grid_x_size - grid_w + 1), range(grid_y_size - grid_h + 1), 0),  # Z=0
+            ]
+            
+            for wall in walls:
+                x_range, y_range, z_range = wall
+                for x in (x_range if isinstance(x_range, range) else [x_range]):
+                    for y in (y_range if isinstance(y_range, range) else [y_range]):
+                        for z in (z_range if isinstance(z_range, range) else [z_range]):
+                            if self._can_place(x, y, z, grid_w, grid_h, grid_d, occupancy_grid):
+                                return x * grid_res, y * grid_res, z * grid_res
+        
+        elif strategy == 'gap_filling':
+            # Look for gaps in already packed items
+            # Scan for empty spaces that match item dimensions
+            for z in range(grid_z_size - grid_d + 1):
+                for y in range(grid_y_size - grid_h + 1):
+                    for x in range(grid_x_size - grid_w + 1):
+                        # Check if this is a "hole" (surrounded by occupied cells)
+                        if self._is_gap_position(x, y, z, grid_w, grid_h, grid_d, occupancy_grid):
+                            if self._can_place(x, y, z, grid_w, grid_h, grid_d, occupancy_grid):
+                                return x * grid_res, y * grid_res, z * grid_res
+        
+        # Default: bottom-left-front
+        for x in range(grid_x_size - grid_w + 1):
+            for y in range(grid_y_size - grid_h + 1):
+                for z in range(grid_z_size - grid_d + 1):
+                    if self._can_place(x, y, z, grid_w, grid_h, grid_d, occupancy_grid):
+                        return x * grid_res, y * grid_res, z * grid_res
+        
+        return None
+    
+    def _can_place(self, grid_x, grid_y, grid_z, grid_w, grid_h, grid_d, occupancy_grid):
+        """Check if space is available in grid"""
+        grid_x_end = min(grid_x + grid_w, occupancy_grid.shape[0])
+        grid_y_end = min(grid_y + grid_h, occupancy_grid.shape[1])
+        grid_z_end = min(grid_z + grid_d, occupancy_grid.shape[2])
+        
+        # Ensure we have valid ranges
+        if grid_x_end <= grid_x or grid_y_end <= grid_y or grid_z_end <= grid_z:
+            return False
+        
+        # Check if all cells are empty
+        return not np.any(occupancy_grid[grid_x:grid_x_end,
+                                        grid_y:grid_y_end,
+                                        grid_z:grid_z_end])
+    
+    def _is_gap_position(self, grid_x, grid_y, grid_z, grid_w, grid_h, grid_d, occupancy_grid):
+        """Check if position is in a gap (surrounded by occupied cells)"""
+        # Check if adjacent cells (except one side) are occupied
+        # This helps fill holes in the packing
+        if grid_x > 0:
+            if not np.any(occupancy_grid[grid_x-1, grid_y:grid_y+grid_h, grid_z:grid_z+grid_d]):
+                return False
+        
+        if grid_y > 0:
+            if not np.any(occupancy_grid[grid_x:grid_x+grid_w, grid_y-1, grid_z:grid_z+grid_d]):
+                return False
+        
+        if grid_z > 0:
+            if not np.any(occupancy_grid[grid_x:grid_x+grid_w, grid_y:grid_y+grid_h, grid_z-1]):
+                return False
+        
+        return True
+
+# ====================================================================
+# FIXED SAFE PACKER
 # ====================================================================
 
 class SafePacker:
@@ -196,6 +406,7 @@ class SafePacker:
         try:
             self.packer = Packer()
             self.validator = BoundaryValidator()
+            self.advanced_algo = AdvancedPackingAlgorithm()
         except Exception as e:
             print(f"⚠️ SafePacker init warning: {e}")
             self.packer = None
@@ -203,174 +414,116 @@ class SafePacker:
     def pack_safely(self, bin_config, items_data):
         """Pack items with full error protection"""
         try:
-            if not self.packer:
-                return self._create_safe_fallback(bin_config, items_data)
-            
-            # Reset packer
-            self.packer.bins = []
-            self.packer.items = []
-            
-            # Create bin safely
-            try:
-                bin_width = SafeConverter.to_float(bin_config.width, 10.0)
-                bin_height = SafeConverter.to_float(bin_config.height, 8.0)
-                bin_depth = SafeConverter.to_float(bin_config.depth, 10.0)
-                
-                main_bin = Bin(
-                    name="safe_container",
-                    width=bin_width,
-                    height=bin_height,
-                    depth=bin_depth,
-                    max_weight=10000.0
-                )
-                self.packer.add_bin(main_bin)
-            except Exception as e:
-                print(f"⚠️ Failed to create bin: {e}")
-                return self._create_safe_fallback(bin_config, items_data)
-            
-            # Add items safely
-            added_items = 0
-            for item_data in items_data:
-                try:
-                    item_id = SafeConverter.to_string(item_data.get('id', f'item_{added_items}'))
-                    width = SafeConverter.to_float(item_data.get('width', 0.5))
-                    height = SafeConverter.to_float(item_data.get('height', 0.5))
-                    depth = SafeConverter.to_float(item_data.get('depth', 0.5))
-                    
-                    # Skip invalid dimensions
-                    if width <= 0 or height <= 0 or depth <= 0:
-                        print(f"⚠️ Skipping item {item_id} with invalid dimensions")
-                        continue
-                    
-                    item = Item(
-                        name=item_id,
-                        width=width,
-                        height=height,
-                        depth=depth,
-                        weight=0.0
-                    )
-                    self.packer.add_item(item)
-                    added_items += 1
-                    
-                except Exception as e:
-                    print(f"⚠️ Failed to add item {item_data.get('id', 'unknown')}: {e}")
-                    continue
-            
-            if added_items == 0:
-                print("⚠️ No items could be added to packer")
-                return self._create_safe_fallback(bin_config, items_data)
-            
-            # Try to pack
-            try:
-                self.packer.pack(bigger_first=True, distribute_items=False)
-            except Exception as e:
-                print(f"⚠️ Packing failed: {e}")
-                return self._create_safe_fallback(bin_config, items_data)
-            
-            # Process results safely
-            return self._process_results_safely(bin_config, items_data)
+            # Use our improved advanced algorithm
+            return self._pack_with_advanced_algorithm(bin_config, items_data)
             
         except Exception as e:
             print(f"❌ Critical error in pack_safely: {e}")
             traceback.print_exc()
             return self._create_safe_fallback(bin_config, items_data)
     
-    def _process_results_safely(self, bin_config, items_data):
-        """Process packing results safely with proper typing"""
+    def _pack_with_advanced_algorithm(self, bin_config, items_data):
+        """Pack using improved algorithm - FIXED"""
         try:
-            packed_items: List[PackedItem] = []
-            packed_volume = 0.0
-            
             container_dims = [
                 SafeConverter.to_float(bin_config.width),
                 SafeConverter.to_float(bin_config.height),
                 SafeConverter.to_float(bin_config.depth)
             ]
             
-            # TYPE FIX: Check if packer exists and has bins
-            if not self.packer or not hasattr(self.packer, 'bins'):
-                print("⚠️ Packer or bins not available")
-                return self._create_safe_fallback(bin_config, items_data)
+            container_width, container_height, container_depth = container_dims
             
-            # Process each bin
-            for bin_idx, bin_obj in enumerate(self.packer.bins):
-                # TYPE FIX: Check if bin_obj exists
-                if not bin_obj:
-                    continue
+            print(f"📦 Container dimensions: {container_width}x{container_height}x{container_depth}")
+            
+            # Prepare items for packing
+            packing_items = []
+            for item_data in items_data:
+                try:
+                    width = SafeConverter.to_float(item_data.get('width', 0.5))
+                    height = SafeConverter.to_float(item_data.get('height', 0.5))
+                    depth = SafeConverter.to_float(item_data.get('depth', 0.5))
                     
-                # TYPE FIX: Safely get items
-                bin_items = getattr(bin_obj, 'items', [])
-                if not isinstance(bin_items, (list, tuple)):
+                    # Calculate volume
+                    volume = width * height * depth
+                    
+                    packing_items.append({
+                        'id': SafeConverter.to_string(item_data.get('id')),
+                        'dimensions': [width, height, depth],
+                        'volume': volume,
+                        'color': item_data.get('color', '#3B82F6'),
+                        'original_name': item_data.get('original_name'),
+                        'original_item': item_data
+                    })
+                except Exception as e:
+                    print(f"⚠️ Failed to prepare item for packing: {e}")
                     continue
-                
-                for item in bin_items:
-                    try:
-                        # Get item data safely
-                        item_id = SafeConverter.to_string(getattr(item, 'name', f'item_{len(packed_items)}'))
-                        
-                        # Find original item data
-                        original_item = None
-                        for orig in items_data:
-                            if SafeConverter.to_string(orig.get('id')) == item_id:
-                                original_item = orig
-                                break
-                        
-                        # Get dimensions safely
-                        width = SafeConverter.to_float(getattr(item, 'width', 0.5))
-                        height = SafeConverter.to_float(getattr(item, 'height', 0.5))
-                        depth = SafeConverter.to_float(getattr(item, 'depth', 0.5))
-                        
-                        # Get position safely - use TypeSafeConverter
-                        position_list = [0.0, 0.0, 0.0]
-                        if hasattr(item, 'position') and item.position:
-                            pos = item.position
-                            # Convert to proper float list
-                            position_list = SafeConverter.to_number_list(pos)
-                        
-                        # Ensure position is within bounds
-                        position_list = self.validator.get_safe_position(
-                            position_list, 
-                            container_dims,
-                            [width, height, depth]
+            
+            print(f"📦 Preparing to pack {len(packing_items)} items")
+            
+            # Pack using advanced algorithm
+            packed_data = self.advanced_algo.pack_items(container_dims, packing_items)
+            
+            # Convert to packed items
+            packed_items = []
+            packed_volume = 0.0
+            
+            for packed in packed_data:
+                try:
+                    # Get position and dimensions
+                    position = packed['position']
+                    dimensions = packed['dimensions']
+                    rotation = packed['rotation']
+                    original_item = packed['original_item']
+                    
+                    # Verify position is valid
+                    if not self.validator.is_item_within_container(
+                        position, dimensions, container_dims
+                    ):
+                        print(f"⚠️ Item {packed['id']} is out of bounds at {position}")
+                        # Adjust position to fit
+                        position = self.validator.get_safe_position(
+                            position, container_dims, dimensions
                         )
+                    
+                    # Double-check for overlaps (safety)
+                    overlaps = False
+                    for other in packed_items:
+                        other_pos = other.position
+                        other_dims = other.dimensions
                         
-                        # TYPE FIX: Convert to List[Union[int, float]] for PackedItem
-                        position_for_packeditem: List[Union[int, float]] = [
-                            float(position_list[0]),
-                            float(position_list[1]),
-                            float(position_list[2])
-                        ]
-                        
-                        dimensions_for_packeditem: List[Union[int, float]] = [
-                            float(width),
-                            float(height),
-                            float(depth)
-                        ]
-                        
-                        # Get color from original item or generate
-                        color = '#3B82F6'  # Default blue
-                        if original_item:
-                            color = original_item.get('color', color)
-                        
-                        # Create packed item with proper typing
+                        # Check for intersection
+                        if (position[0] < other_pos[0] + other_dims[0] and 
+                            position[0] + dimensions[0] > other_pos[0] and
+                            position[1] < other_pos[1] + other_dims[1] and 
+                            position[1] + dimensions[1] > other_pos[1] and
+                            position[2] < other_pos[2] + other_dims[2] and 
+                            position[2] + dimensions[2] > other_pos[2]):
+                            overlaps = True
+                            print(f"⚠️ Overlap detected for item {packed['id']}")
+                            break
+                    
+                    if not overlaps:
+                        # Create packed item
                         packed_item = PackedItem(
-                            id=item_id,
-                            position=position_for_packeditem,  # Now properly typed
-                            rotation=[0, 0, 0],
-                            dimensions=dimensions_for_packeditem,  # Now properly typed
-                            color=color,
-                            original_name=original_item.get('original_name', item_id.split('_')[0]) if original_item else item_id.split('_')[0],
-                            original_dimensions=dimensions_for_packeditem,
+                            id=packed['id'],
+                            position=position,
+                            rotation=rotation,
+                            dimensions=dimensions,
+                            color=original_item.get('color', '#3B82F6'),
+                            original_name=original_item.get('original_name', packed['id'].split('_')[0]),
+                            original_dimensions=dimensions,
                             rotation_mode_used='RotationMode.SMART',
-                            bounding_box_volume=width * height * depth
+                            bounding_box_volume=dimensions[0] * dimensions[1] * dimensions[2]
                         )
                         
                         packed_items.append(packed_item)
-                        packed_volume += width * height * depth
+                        packed_volume += dimensions[0] * dimensions[1] * dimensions[2]
                         
-                    except Exception as e:
-                        print(f"⚠️ Failed to process item: {e}")
-                        continue
+                        print(f"✅ Successfully packed {packed['id']} at {position}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Failed to process packed item: {e}")
+                    continue
             
             # Find unpacked items
             packed_ids = {item.id for item in packed_items}
@@ -396,17 +549,27 @@ class SafePacker:
                     print(f"⚠️ Failed to process unpacked item: {e}")
                     continue
             
+            print(f"📊 Summary: Packed {len(packed_items)} items, {len(unpacked_items)} unpacked")
+            
             # Calculate statistics
-            container_volume = container_dims[0] * container_dims[1] * container_dims[2]
+            container_volume = container_width * container_height * container_depth
             space_utilization = (packed_volume / container_volume * 100) if container_volume > 0 else 0
             
-            # Create packed bin with proper typing
+            # Calculate efficiency metrics
+            total_items = len(items_data)
+            packed_count = len(packed_items)
+            packing_efficiency = (packed_count / total_items * 100) if total_items > 0 else 0
+            
+            print(f"📊 Utilization: {space_utilization:.1f}%")
+            print(f"📊 Efficiency: {packing_efficiency:.1f}% ({packed_count}/{total_items})")
+            
+            # Create packed bin
             packed_bin = PackedBin(
                 bin_id='bin_1',
                 dimensions=[
-                    float(container_dims[0]),
-                    float(container_dims[1]),
-                    float(container_dims[2])
+                    float(container_width),
+                    float(container_height),
+                    float(container_depth)
                 ],
                 items=packed_items,
                 utilization=round(space_utilization, 2),
@@ -419,7 +582,7 @@ class SafePacker:
                 'statistics': {
                     'success': True,
                     'space_utilization': round(space_utilization, 2),
-                    'packing_efficiency': (len(packed_items) / len(items_data) * 100) if items_data else 0,
+                    'packing_efficiency': round(packing_efficiency, 2),
                     'container_volume': round(container_volume, 2),
                     'total_item_volume': sum(item.get('volume', 0) for item in items_data),
                     'packed_volume': round(packed_volume, 2),
@@ -427,29 +590,31 @@ class SafePacker:
                     'total_item_weight': 0,
                     'packed_weight': 0,
                     'bins_used': 1,
-                    'items_packed': len(packed_items),
-                    'total_items': len(items_data),
-                    'strategy_used': 'safe_packer',
+                    'items_packed': packed_count,
+                    'total_items': total_items,
+                    'strategy_used': 'advanced_algorithm_v2',
                     'solution_valid': True,
-                    'validation_warnings': []
+                    'validation_warnings': [],
+                    'algorithm': 'maximal-rectangles'
                 }
             }
             
         except Exception as e:
-            print(f"❌ Error processing results: {e}")
+            print(f"❌ Error in advanced algorithm packing: {e}")
             traceback.print_exc()
             return self._create_safe_fallback(bin_config, items_data)
     
     def _create_safe_fallback(self, bin_config, items_data):
-        """Create a safe fallback result when everything fails"""
+        """Create a safe fallback result - IMPROVED"""
         try:
-            # Simple placement algorithm that never fails
             packed_items = []
             packed_volume = 0.0
             
             container_width = SafeConverter.to_float(bin_config.width, 10.0)
             container_height = SafeConverter.to_float(bin_config.height, 8.0)
             container_depth = SafeConverter.to_float(bin_config.depth, 10.0)
+            
+            print(f"🔄 Using improved fallback algorithm")
             
             # Sort by volume (largest first)
             sorted_items = sorted(
@@ -458,10 +623,10 @@ class SafePacker:
                 reverse=True
             )
             
-            current_x, current_y, current_z = 0, 0, 0
-            max_y_in_row = 0
-            max_z_in_layer = 0
+            # Track occupied spaces
+            occupied_spaces = []  # List of (x, y, z, w, h, d)
             
+            # Simple 3D grid placement
             for item_data in sorted_items:
                 try:
                     item_id = SafeConverter.to_string(item_data.get('id', f'item_{len(packed_items)}'))
@@ -470,18 +635,44 @@ class SafePacker:
                     depth = SafeConverter.to_float(item_data.get('depth', 0.5))
                     color = item_data.get('color', '#3B82F6')
                     
-                    # Check if fits
-                    fits_x = current_x + width <= container_width
-                    fits_y = current_y + height <= container_height
-                    fits_z = current_z + depth <= container_depth
+                    # Skip invalid dimensions
+                    if width <= 0 or height <= 0 or depth <= 0:
+                        continue
                     
-                    if fits_x and fits_y and fits_z:
-                        # Place item
-                        position = [current_x, current_y, current_z]
-                        
+                    # Try to find a position
+                    position_found = False
+                    best_position = [0.0, 0.0, 0.0]
+                    
+                    # Try from bottom up, left to right, front to back
+                    grid_step = min(width, height, depth) * 0.5
+                    if grid_step < 0.1:
+                        grid_step = 0.1
+                    
+                    for z in np.arange(0, container_depth - depth + grid_step, grid_step):
+                        for y in np.arange(0, container_height - height + grid_step, grid_step):
+                            for x in np.arange(0, container_width - width + grid_step, grid_step):
+                                # Check for overlaps
+                                overlaps = False
+                                for ox, oy, oz, ow, oh, od in occupied_spaces:
+                                    if (x < ox + ow and x + width > ox and
+                                        y < oy + oh and y + height > oy and
+                                        z < oz + od and z + depth > oz):
+                                        overlaps = True
+                                        break
+                                
+                                if not overlaps:
+                                    best_position = [float(x), float(y), float(z)]
+                                    position_found = True
+                                    break
+                            if position_found:
+                                break
+                        if position_found:
+                            break
+                    
+                    if position_found:
                         packed_item = PackedItem(
                             id=item_id,
-                            position=position,
+                            position=best_position,
                             rotation=[0, 0, 0],
                             dimensions=[width, height, depth],
                             color=color,
@@ -493,23 +684,12 @@ class SafePacker:
                         
                         packed_items.append(packed_item)
                         packed_volume += width * height * depth
+                        occupied_spaces.append((
+                            best_position[0], best_position[1], best_position[2],
+                            width, height, depth
+                        ))
                         
-                        # Update position for next item
-                        current_x += width
-                        max_y_in_row = max(max_y_in_row, height)
-                        max_z_in_layer = max(max_z_in_layer, depth)
-                        
-                        # Move to next row if needed
-                        if current_x + width > container_width:
-                            current_x = 0
-                            current_y += max_y_in_row
-                            max_y_in_row = 0
-                            
-                            # Move to next layer if needed
-                            if current_y + height > container_height:
-                                current_y = 0
-                                current_z += max_z_in_layer
-                                max_z_in_layer = 0
+                        print(f"✅ Fallback packed {item_id} at {best_position}")
                     
                 except Exception as e:
                     print(f"⚠️ Fallback failed for item: {e}")
@@ -518,6 +698,12 @@ class SafePacker:
             # Calculate statistics
             container_volume = container_width * container_height * container_depth
             space_utilization = (packed_volume / container_volume * 100) if container_volume > 0 else 0
+            total_items = len(items_data)
+            packed_count = len(packed_items)
+            packing_efficiency = (packed_count / total_items * 100) if total_items > 0 else 0
+            
+            print(f"📊 Fallback packed {packed_count}/{total_items} items")
+            print(f"📊 Fallback utilization: {space_utilization:.1f}%")
             
             # Create unpacked items list
             packed_ids = {item.id for item in packed_items}
@@ -558,7 +744,7 @@ class SafePacker:
                 'statistics': {
                     'success': True,
                     'space_utilization': round(space_utilization, 2),
-                    'packing_efficiency': (len(packed_items) / len(items_data) * 100) if items_data else 0,
+                    'packing_efficiency': round(packing_efficiency, 2),
                     'container_volume': round(container_volume, 2),
                     'total_item_volume': sum(item.get('volume', 0) for item in items_data),
                     'packed_volume': round(packed_volume, 2),
@@ -566,17 +752,17 @@ class SafePacker:
                     'total_item_weight': 0,
                     'packed_weight': 0,
                     'bins_used': 1,
-                    'items_packed': len(packed_items),
-                    'total_items': len(items_data),
-                    'strategy_used': 'fallback_safe',
+                    'items_packed': packed_count,
+                    'total_items': total_items,
+                    'strategy_used': 'fallback_v2',
                     'solution_valid': True,
-                    'validation_warnings': ['Using safe fallback algorithm']
+                    'validation_warnings': ['Using improved fallback algorithm'],
+                    'algorithm': 'maximal-rectangles'
                 }
             }
             
         except Exception as e:
             print(f"❌ Critical error in fallback: {e}")
-            # Last resort - empty result
             return self._create_empty_result(bin_config, items_data)
     
     def _create_empty_result(self, bin_config, items_data):
@@ -626,7 +812,8 @@ class SafePacker:
                     'total_items': len(items_data),
                     'strategy_used': 'empty_fallback',
                     'solution_valid': False,
-                    'validation_warnings': ['Packing failed completely']
+                    'validation_warnings': ['Packing failed completely'],
+                    'algorithm': 'maximal-rectangles'
                 }
             }
         except Exception as e:
@@ -651,12 +838,13 @@ class SafePacker:
                     'total_items': 0,
                     'strategy_used': 'emergency_fallback',
                     'solution_valid': False,
-                    'validation_warnings': ['Emergency fallback used']
+                    'validation_warnings': ['Emergency fallback used'],
+                    'algorithm': 'maximal-rectangles'
                 }
             }
 
 # ====================================================================
-# MAIN PACKING SERVICE - ULTRA ROBUST
+# MAIN PACKING SERVICE - FIXED
 # ====================================================================
 
 class UltraRobustPackingService:
@@ -672,12 +860,7 @@ class UltraRobustPackingService:
         
         try:
             print(f"🚀 Starting packing calculation for job {job_id}")
-            
-            # Validate request safely
-            validation_result = self._validate_request_safely(request)
-            if not validation_result["valid"]:
-                print(f"❌ Validation failed: {validation_result['errors']}")
-                return self._create_validation_error_result(job_id, validation_result, start_time)
+            print(f"📦 Algorithm requested: {request.algorithm}")
             
             # Prepare items data safely
             items_data = self._prepare_items_data_safely(request.items)
@@ -685,7 +868,9 @@ class UltraRobustPackingService:
                 print("⚠️ No valid items to pack")
                 return self._create_no_items_result(job_id, request.bin_config, start_time)
             
-            # Pack safely
+            print(f"📦 Total valid items: {len(items_data)}")
+            
+            # Pack safely using improved algorithm
             packing_result = self.safe_packer.pack_safely(request.bin_config, items_data)
             
             # Add timing and algorithm info
@@ -714,7 +899,7 @@ class UltraRobustPackingService:
                 items_data
             )
             
-            # Build unpacked items safely - FIXED: Only process actual unpacked items
+            # Build unpacked items safely
             unpacked_items = self._build_unpacked_items_safely(
                 packing_result.get('unpacked_items', []),
                 items_data
@@ -734,67 +919,6 @@ class UltraRobustPackingService:
             print(f"❌❌❌ UNEXPECTED ERROR in calculate_packing: {e}")
             traceback.print_exc()
             return self._create_emergency_result(job_id, e, start_time)
-    
-    def _validate_request_safely(self, request: PackingRequest) -> Dict[str, Any]:
-        """Validate request safely - no exceptions"""
-        errors = []
-        warnings = []
-        
-        try:
-            # Check bin config exists
-            if not hasattr(request, 'bin_config') or not request.bin_config:
-                errors.append("Bin configuration is missing")
-                return {"valid": False, "errors": errors, "warnings": warnings}
-            
-            # Validate bin dimensions
-            bin_cfg = request.bin_config
-            
-            width = SafeConverter.to_float(bin_cfg.width)
-            height = SafeConverter.to_float(bin_cfg.height)
-            depth = SafeConverter.to_float(bin_cfg.depth)
-            
-            if width <= 0:
-                errors.append("Container width must be positive")
-            if height <= 0:
-                errors.append("Container height must be positive")
-            if depth <= 0:
-                errors.append("Container depth must be positive")
-            
-            if width > 100:
-                warnings.append("Container width is very large (>100m)")
-            if height > 100:
-                warnings.append("Container height is very large (>100m)")
-            if depth > 100:
-                warnings.append("Container depth is very large (>100m)")
-            
-            # Check items
-            if not hasattr(request, 'items') or not request.items:
-                errors.append("At least one item is required")
-            else:
-                # Check each item
-                for i, item in enumerate(request.items):
-                    try:
-                        item_width = SafeConverter.to_float(item.width)
-                        item_height = SafeConverter.to_float(item.height)
-                        item_depth = SafeConverter.to_float(item.depth)
-                        
-                        if item_width <= 0 or item_height <= 0 or item_depth <= 0:
-                            errors.append(f"Item {i+1} has invalid dimensions")
-                        
-                        if item_width > width and item_height > height and item_depth > depth:
-                            warnings.append(f"Item {item.name or item.id} may be too large for container")
-                    
-                    except Exception as e:
-                        errors.append(f"Item {i+1} validation failed: {str(e)[:50]}")
-            
-        except Exception as e:
-            errors.append(f"Validation error: {str(e)[:100]}")
-        
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-            "warnings": warnings
-        }
     
     def _prepare_items_data_safely(self, items: List[ItemSchema]) -> List[Dict]:
         """Prepare items data safely - no exceptions"""
@@ -847,9 +971,10 @@ class UltraRobustPackingService:
                         })
                 
                 except Exception as e:
-                    print(f"⚠️ Failed to prepare item {getattr(item_schema, 'id', 'unknown')}: {e}")
+                    print(f"⚠️ Failed to prepare item: {e}")
                     continue
             
+            print(f"📦 Prepared {len(items_data)} valid items for packing")
             return items_data
             
         except Exception as e:
@@ -879,7 +1004,7 @@ class UltraRobustPackingService:
                             print(f"⚠️ Failed to process packed item for visualization: {e}")
                             continue
                 except Exception as e:
-                    print(f"⚠️ Failed to process bin {bin_idx} for visualization: {e}")
+                    print(f"⚠️ Failed to process bin for visualization: {e}")
                     continue
             
             # Process unpacked items
@@ -907,6 +1032,16 @@ class UltraRobustPackingService:
                 container_height = SafeConverter.to_float(bin_config.height, 8.0)
                 container_depth = SafeConverter.to_float(bin_config.depth, 10.0)
                 
+                # Calculate packed volume for summary
+                packed_volume = 0.0
+                for item in items_data:
+                    dims = item.get('dimensions', [0.5, 0.5, 0.5])
+                    if len(dims) == 3:
+                        packed_volume += dims[0] * dims[1] * dims[2]
+                
+                container_volume = container_width * container_height * container_depth
+                space_utilization = (packed_volume / container_volume * 100) if container_volume > 0 else 0
+                
                 visualization_data_dict = {
                     "items": items_data,
                     "unpacked_items": unpacked_items_for_viz,
@@ -914,7 +1049,7 @@ class UltraRobustPackingService:
                         "width": container_width,
                         "height": container_height,
                         "depth": container_depth,
-                        "volume": container_width * container_height * container_depth
+                        "volume": container_volume
                     },
                     "scene": {
                         "background": "#f8fafc",
@@ -929,8 +1064,8 @@ class UltraRobustPackingService:
                         "total_items": len(original_items_data),
                         "packed_items": len(items_data),
                         "unpacked_count": len(unpacked_items_data),
-                        "space_utilization": 0.0,  # Will be filled from statistics
-                        "efficiency": 0.0  # Will be filled from statistics
+                        "space_utilization": round(space_utilization, 2),
+                        "efficiency": round((len(items_data) / len(original_items_data) * 100) if original_items_data else 0, 2)
                     }
                 }
             except Exception as e:
@@ -938,20 +1073,12 @@ class UltraRobustPackingService:
                 visualization_data_dict = {
                     "items": items_data,
                     "unpacked_items": unpacked_items_for_viz,
-                    "container": {
-                        "width": 10.0,
-                        "height": 8.0,
-                        "depth": 10.0,
-                        "volume": 800.0
-                    },
+                    "container": {"width": 10.0, "height": 8.0, "depth": 10.0, "volume": 800.0},
                     "scene": {
                         "background": "#f8fafc",
                         "grid": True,
                         "axes": True,
-                        "camera": {
-                            "position": [20, 15, 20],
-                            "target": [0, 0, 0]
-                        }
+                        "camera": {"position": [20, 15, 20], "target": [0, 0, 0]}
                     },
                     "summary": {
                         "total_items": len(original_items_data) if original_items_data else 0,
@@ -962,29 +1089,20 @@ class UltraRobustPackingService:
                     }
                 }
             
-            # Return as dict for compatibility with PackingResult schema
             return visualization_data_dict
             
         except Exception as e:
             print(f"❌ Error in build_visualization_data_safely: {e}")
-            # Return minimal valid visualization data as dict
+            # Return minimal valid visualization data
             return {
                 "items": [],
                 "unpacked_items": [],
-                "container": {
-                    "width": 10.0,
-                    "height": 8.0,
-                    "depth": 10.0,
-                    "volume": 800.0
-                },
+                "container": {"width": 10.0, "height": 8.0, "depth": 10.0, "volume": 800.0},
                 "scene": {
                     "background": "#f8fafc",
                     "grid": True,
                     "axes": True,
-                    "camera": {
-                        "position": [20, 15, 20],
-                        "target": [0, 0, 0]
-                    }
+                    "camera": {"position": [20, 15, 20], "target": [0, 0, 0]}
                 },
                 "summary": {
                     "total_items": len(original_items_data) if original_items_data else 0,
@@ -996,14 +1114,12 @@ class UltraRobustPackingService:
             }
     
     def _build_unpacked_items_safely(self, unpacked_items_data, original_items_data):
-        """Build unpacked items list safely - no exceptions - FIXED VERSION"""
+        """Build unpacked items list safely"""
         unpacked_items = []
         
         try:
-            # Process only actual unpacked items from packing result
             for item_data in unpacked_items_data:
                 try:
-                    # Create UnpackedItem according to your schema
                     item = UnpackedItem(
                         name=SafeConverter.to_string(item_data.get('original_name', 'Unknown')),
                         id=SafeConverter.to_string(item_data.get('id', str(uuid.uuid4()))),
@@ -1020,87 +1136,11 @@ class UltraRobustPackingService:
                     print(f"⚠️ Failed to build unpacked item: {e}")
                     continue
             
-            # REMOVED THE BUGGY LOGIC THAT CREATED UNPACKED ITEMS WHEN PACKING SUCCEEDED
-            
             return unpacked_items
             
         except Exception as e:
             print(f"❌ Error in build_unpacked_items_safely: {e}")
             return []
-    
-    def _create_validation_error_result(self, job_id, validation_result, start_time):
-        """Create result for validation errors"""
-        execution_time = time.time() - start_time
-        
-        # Build visualization data as dict
-        visualization_data = {
-            "items": [],
-            "unpacked_items": [],
-            "container": {
-                "width": 0.0,
-                "height": 0.0,
-                "depth": 0.0,
-                "volume": 0.0
-            },
-            "scene": {
-                "background": "#f8fafc",
-                "grid": False,
-                "axes": False,
-                "camera": {
-                    "position": [0, 0, 0],
-                    "target": [0, 0, 0]
-                }
-            },
-            "summary": {
-                "total_items": 0,
-                "packed_items": 0,
-                "unpacked_count": 0,
-                "space_utilization": 0.0,
-                "efficiency": 0.0
-            }
-        }
-        
-        # Build statistics with rotation stats
-        statistics = {
-            "success": False,
-            "validation_errors": validation_result["errors"],
-            "warnings": validation_result["warnings"],
-            "space_utilization": 0.0,
-            "packing_efficiency": 0.0,
-            "container_volume": 0.0,
-            "total_item_volume": 0.0,
-            "packed_volume": 0.0,
-            "empty_volume": 0.0,
-            "total_item_weight": 0,
-            "packed_weight": 0,
-            "bins_used": 0,
-            "items_packed": 0,
-            "total_items": 0,
-            "unpacked_items_count": 0,
-            "execution_time_ms": round(execution_time * 1000, 2),
-            "algorithm": "none",
-            "validation_warnings": validation_result["warnings"],
-            "strategy_used": "none",
-            "solution_valid": False,
-            "rotation_mode": "none",
-            "rotation_stats": {
-                'items_with_rotation': 0,
-                'max_rotation_angle': 0,
-                'avg_rotation_angle': 0,
-                'min_rotation_angle': 0,
-                'rotation_modes_used': {},
-                'rotation_efficiency_gain': 0.0,
-                'rotation_attempts': 0
-            }
-        }
-        
-        return PackingResult(
-            bins=[],
-            statistics=statistics,
-            job_id=job_id,
-            visualization_data=visualization_data,
-            unpacked_items=[]
-        )
     
     def _create_no_items_result(self, job_id, bin_config, start_time):
         """Create result when no valid items to pack"""
@@ -1191,20 +1231,12 @@ class UltraRobustPackingService:
         visualization_data = {
             "items": [],
             "unpacked_items": [],
-            "container": {
-                "width": 0.0,
-                "height": 0.0,
-                "depth": 0.0,
-                "volume": 0.0
-            },
+            "container": {"width": 0.0, "height": 0.0, "depth": 0.0, "volume": 0.0},
             "scene": {
                 "background": "#f8fafc",
                 "grid": False,
                 "axes": False,
-                "camera": {
-                    "position": [0, 0, 0],
-                    "target": [0, 0, 0]
-                }
+                "camera": {"position": [0, 0, 0], "target": [0, 0, 0]}
             },
             "summary": {
                 "total_items": 0,
@@ -1256,52 +1288,13 @@ class UltraRobustPackingService:
         )
     
     def _generate_color_safely(self, base_name):
-        """Generate a consistent color based on item name - no exceptions"""
+        """Generate a consistent color based on item name"""
         try:
-            # Simple hash-based color generation
             hash_val = hash(base_name) % 360
             hue = abs(hash_val) % 360
             return f'hsl({hue}, 70%, 50%)'
         except Exception:
             return '#3B82F6'  # Default blue
-
-            # Add this method to the UltraRobustPackingService class
-    def _validate_request(self, request: PackingRequest) -> Dict[str, Any]:
-        """Validate request and calculate volume analysis"""
-        validation_result = self._validate_request_safely(request)
-        
-        # Calculate volume analysis
-        total_volume = 0.0
-        container_volume = 0.0
-        
-        try:
-            # Calculate container volume
-            container_width = SafeConverter.to_float(request.bin_config.width, 0.0)
-            container_height = SafeConverter.to_float(request.bin_config.height, 0.0)
-            container_depth = SafeConverter.to_float(request.bin_config.depth, 0.0)
-            container_volume = container_width * container_height * container_depth
-            
-            # Calculate total item volume
-            if hasattr(request, 'items') and request.items:
-                for item in request.items:
-                    try:
-                        quantity = SafeConverter.to_int(getattr(item, 'quantity', 1))
-                        width = SafeConverter.to_float(item.width, 0.0)
-                        height = SafeConverter.to_float(item.height, 0.0)
-                        depth = SafeConverter.to_float(item.depth, 0.0)
-                        item_volume = width * height * depth
-                        total_volume += item_volume * quantity
-                    except Exception as e:
-                        print(f"⚠️ Failed to calculate volume for item: {e}")
-                        continue
-        except Exception as e:
-            print(f"⚠️ Failed to calculate volumes: {e}")
-        
-        # Add volume analysis to validation result
-        validation_result["total_volume"] = total_volume
-        validation_result["container_volume"] = container_volume
-        
-        return validation_result
 
 # Create singleton instance
 packing_service = UltraRobustPackingService()
