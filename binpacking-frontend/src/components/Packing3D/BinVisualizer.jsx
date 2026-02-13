@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import PackingReportGenerator from './PackingReportGenerator';
 
-const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
+const BinVisualizer = forwardRef(({ packingResult, isLoading, originalItems = [] }, ref) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
@@ -19,12 +20,39 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
   const unpackedMeshesRef = useRef([]);
   const containerGroupRef = useRef(null);
   const unpackedAreaGroupRef = useRef(null);
+  const separatorLineRef = useRef(null);
+  const dashedLinesRef = useRef([]);
   const [debugInfo, setDebugInfo] = useState('');
   const isRenderingRef = useRef(false);
   const isMountedRef = useRef(true);
   const [viewMode, setViewMode] = useState('3D');
   const [outOfBoundsItems, setOutOfBoundsItems] = useState([]);
-  const [showUnpackedArea, setShowUnpackedArea] = useState(true); // Default to true to show unpacked
+  const [showUnpackedArea, setShowUnpackedArea] = useState(true);
+
+  // ==================== EXPOSE METHODS TO PARENT VIA REF ====================
+  useImperativeHandle(ref, () => ({
+    getCanvas: () => canvasRef.current,
+    getScene: () => sceneRef.current,
+    getCamera: () => cameraRef.current,
+    resetView: () => {
+      if (cameraRef.current && controlsRef.current) {
+        const containerData = packingResult?.visualization_data?.container;
+        if (containerData) {
+          const width = parseFloat(containerData.width) || 17.0;
+          const height = parseFloat(containerData.height) || 8.0;
+          const depth = parseFloat(containerData.depth) || 10.0;
+          cameraRef.current.position.set(width * 0.8, height * 0.8, depth * 1.5);
+          cameraRef.current.lookAt(width/2, height/2, depth/2);
+          controlsRef.current.target.set(width/2, height/2, depth/2);
+        } else {
+          cameraRef.current.position.set(20, 15, 20);
+          cameraRef.current.lookAt(8.5, 4, 5);
+          controlsRef.current.target.set(8.5, 4, 5);
+        }
+        controlsRef.current.update();
+      }
+    }
+  }));
 
   console.log('🎯 BinVisualizer received:', {
     hasPackingResult: !!packingResult,
@@ -36,7 +64,87 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     hasUnpackedItems: !!packingResult?.visualization_data?.unpacked_items
   });
 
-  // Cleanup function
+  // ==================== HELPER FUNCTIONS ====================
+
+  const createDashedBox = useCallback((width, height, depth, centerX, centerY, centerZ, color) => {
+    if (!width || !height || !depth) return;
+    
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    const halfDepth = depth / 2;
+    
+    const edges = [
+      [[-halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, -halfDepth]],
+      [[halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, halfDepth]],
+      [[halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, halfDepth]],
+      [[-halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, -halfDepth]],
+      [[-halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
+      [[halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, halfDepth]],
+      [[halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, halfDepth]],
+      [[-halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, -halfDepth]],
+      [[-halfWidth, -halfHeight, -halfDepth], [-halfWidth, halfHeight, -halfDepth]],
+      [[halfWidth, -halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
+      [[halfWidth, -halfHeight, halfDepth], [halfWidth, halfHeight, halfDepth]],
+      [[-halfWidth, -halfHeight, halfDepth], [-halfWidth, halfHeight, halfDepth]]
+    ];
+    
+    edges.forEach(([start, end]) => {
+      try {
+        const geometry = new THREE.BufferGeometry();
+        const vertices = new Float32Array([
+          start[0], start[1], start[2],
+          end[0], end[1], end[2]
+        ]);
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        
+        const material = new THREE.LineDashedMaterial({
+          color: color,
+          dashSize: 0.5,
+          gapSize: 0.3
+        });
+        
+        const line = new THREE.Line(geometry, material);
+        line.computeLineDistances();
+        line.position.set(centerX, centerY, centerZ);
+        line.userData.isDashedLine = true;
+        
+        dashedLinesRef.current.push({ line, geometry, material });
+        
+        if (unpackedAreaGroupRef.current) {
+          unpackedAreaGroupRef.current.add(line);
+        } else if (sceneRef.current) {
+          sceneRef.current.add(line);
+        }
+      } catch (error) {
+        console.error('Error creating dashed box:', error);
+      }
+    });
+  }, []);
+
+  const getRotatedDimensions = useCallback((width, height, depth, rotX, rotY, rotZ) => {
+    const rx = Math.abs(rotX % 360);
+    const ry = Math.abs(rotY % 360);
+    const rz = Math.abs(rotZ % 360);
+    
+    let w = width, h = height, d = depth;
+    
+    if (Math.abs(rz - 90) < 1 || Math.abs(rz - 270) < 1) {
+      [w, h] = [h, w];
+    }
+    
+    if (Math.abs(ry - 90) < 1 || Math.abs(ry - 270) < 1) {
+      [w, d] = [d, w];
+    }
+    
+    if (Math.abs(rx - 90) < 1 || Math.abs(rx - 270) < 1) {
+      [h, d] = [d, h];
+    }
+    
+    return { width: w, height: h, depth: d };
+  }, []);
+
+  // ==================== CLEANUP FUNCTION ====================
+
   const cleanupScene = useCallback((skipSceneReset = false) => {
     console.log('🧹 Cleaning up scene...');
     
@@ -45,105 +153,140 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       animationFrameId.current = null;
     }
     
-    // Clean up packed items
+    if (separatorLineRef.current) {
+      try {
+        if (separatorLineRef.current.parent) {
+          separatorLineRef.current.parent.remove(separatorLineRef.current);
+        }
+        if (separatorLineRef.current.geometry) separatorLineRef.current.geometry.dispose();
+        if (separatorLineRef.current.material) separatorLineRef.current.material.dispose();
+      } catch (e) {}
+      separatorLineRef.current = null;
+    }
+    
+    dashedLinesRef.current.forEach(({ line, geometry, material }) => {
+      try {
+        if (line.parent) line.parent.remove(line);
+        if (geometry) geometry.dispose();
+        if (material) material.dispose();
+      } catch (e) {}
+    });
+    dashedLinesRef.current = [];
+    
     itemMeshesRef.current.forEach(mesh => {
-      if (mesh && mesh.parent) {
-        mesh.parent.remove(mesh);
-      }
-      if (mesh) {
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) {
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => m.dispose());
-          } else {
-            mesh.material.dispose();
+      try {
+        if (mesh && mesh.parent) mesh.parent.remove(mesh);
+        if (mesh) {
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach(m => m.dispose());
+            } else {
+              mesh.material.dispose();
+            }
           }
         }
-      }
+      } catch (e) {}
     });
     itemMeshesRef.current = [];
     
-    // Clean up unpacked items
     unpackedMeshesRef.current.forEach(mesh => {
-      if (mesh && mesh.parent) {
-        mesh.parent.remove(mesh);
-      }
-      if (mesh) {
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) {
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => m.dispose());
-          } else {
-            mesh.material.dispose();
+      try {
+        if (mesh && mesh.parent) mesh.parent.remove(mesh);
+        if (mesh) {
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach(m => m.dispose());
+            } else {
+              mesh.material.dispose();
+            }
           }
         }
-      }
+      } catch (e) {}
     });
     unpackedMeshesRef.current = [];
     
-    if (containerGroupRef.current && containerGroupRef.current.parent) {
-      containerGroupRef.current.parent.remove(containerGroupRef.current);
-      containerGroupRef.current.traverse((child) => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
+    if (containerGroupRef.current) {
+      try {
+        if (containerGroupRef.current.parent) {
+          containerGroupRef.current.parent.remove(containerGroupRef.current);
         }
-      });
+        containerGroupRef.current.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      } catch (e) {}
       containerGroupRef.current = null;
     }
     
-    if (unpackedAreaGroupRef.current && unpackedAreaGroupRef.current.parent) {
-      unpackedAreaGroupRef.current.parent.remove(unpackedAreaGroupRef.current);
-      unpackedAreaGroupRef.current.traverse((child) => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
+    if (unpackedAreaGroupRef.current) {
+      try {
+        if (unpackedAreaGroupRef.current.parent) {
+          unpackedAreaGroupRef.current.parent.remove(unpackedAreaGroupRef.current);
         }
-      });
+        unpackedAreaGroupRef.current.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      } catch (e) {}
       unpackedAreaGroupRef.current = null;
     }
     
     if (controlsRef.current) {
-      controlsRef.current.target.set(0, 0, 0);
-      controlsRef.current.update();
+      try {
+        controlsRef.current.target.set(0, 0, 0);
+        controlsRef.current.update();
+      } catch (e) {}
     }
     
     if (!skipSceneReset && sceneRef.current) {
-      const toRemove = [];
-      sceneRef.current.traverse((child) => {
-        if (child.userData && (child.userData.isPackedItem || child.userData.isContainer || child.userData.isUnpackedItem || child.userData.isUnpackedArea)) {
-          toRemove.push(child);
-        }
-      });
-      
-      toRemove.forEach(child => {
-        if (child.parent) {
-          child.parent.remove(child);
-        }
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
+      try {
+        const toRemove = [];
+        sceneRef.current.traverse((child) => {
+          if (child.userData && (
+            child.userData.isPackedItem || 
+            child.userData.isContainer || 
+            child.userData.isUnpackedItem || 
+            child.userData.isUnpackedArea || 
+            child.userData.isDashedLine
+          )) {
+            toRemove.push(child);
           }
-        }
-      });
+        });
+        
+        toRemove.forEach(child => {
+          if (child.parent) child.parent.remove(child);
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      } catch (e) {}
     }
     
     isRenderingRef.current = false;
     console.log('✅ Cleanup complete');
   }, []);
 
-  // Initialize Three.js
+  // ==================== THREE.JS INITIALIZATION ====================
+
   useEffect(() => {
     console.log('🔄 Initializing Three.js...');
     
@@ -151,30 +294,24 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     let initAttempted = false;
     
     const initThreeJS = () => {
-      if (!isMountedRef.current || !canvasRef.current || initAttempted) {
-        return false;
-      }
-      
+      if (!isMountedRef.current || !canvasRef.current || initAttempted) return false;
       initAttempted = true;
 
       try {
-        // SCENE
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xf8fafc);
         sceneRef.current = scene;
 
-        // CAMERA - FIXED: Better starting position
         const camera = new THREE.PerspectiveCamera(
           60,
           canvasRef.current.clientWidth / canvasRef.current.clientHeight,
-          0.1,
+          0.01,
           1000
         );
         camera.position.set(20, 15, 20);
-        camera.lookAt(0, 4, 0);
+        camera.lookAt(8.5, 4, 5);
         cameraRef.current = camera;
 
-        // RENDERER
         const renderer = new THREE.WebGLRenderer({
           canvas: canvasRef.current,
           antialias: true,
@@ -188,32 +325,39 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         rendererRef.current = renderer;
 
-        // CONTROLS
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.minDistance = 1;
-        controls.maxDistance = 150;
+        controls.rotateSpeed = 0.8;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 5;
+        controls.maxDistance = 200;
         controls.maxPolarAngle = Math.PI / 2;
+        controls.target.set(8.5, 4, 5);
         controlsRef.current = controls;
 
-        // LIGHTS
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(20, 30, 20);
-        directionalLight.castShadow = true;
-        directionalLight.shadow.mapSize.width = 2048;
-        directionalLight.shadow.mapSize.height = 2048;
-        scene.add(directionalLight);
+        const mainLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        mainLight.position.set(20, 30, 20);
+        mainLight.castShadow = true;
+        mainLight.receiveShadow = true;
+        mainLight.shadow.mapSize.width = 2048;
+        mainLight.shadow.mapSize.height = 2048;
+        scene.add(mainLight);
 
-        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-        directionalLight2.position.set(-20, 20, -20);
-        scene.add(directionalLight2);
+        const fillLight = new THREE.DirectionalLight(0xffeedd, 0.5);
+        fillLight.position.set(-20, 20, -30);
+        scene.add(fillLight);
 
-        // GRID
-        const gridHelper = new THREE.GridHelper(50, 50, 0xcccccc, 0xcccccc);
+        const backLight = new THREE.DirectionalLight(0xccddff, 0.3);
+        backLight.position.set(-10, 0, -30);
+        scene.add(backLight);
+
+        const gridHelper = new THREE.GridHelper(100, 50, 0x94a3b8, 0xcbd5e1);
         gridHelper.position.y = 0;
         scene.add(gridHelper);
 
@@ -228,22 +372,15 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       }
     };
 
-    // Animation loop
     const startAnimationLoop = () => {
       if (!isMountedRef.current || isRenderingRef.current) return;
-      
       isRenderingRef.current = true;
       
       const animate = () => {
-        if (!isMountedRef.current || !isRenderingRef.current) {
-          return;
-        }
-        
+        if (!isMountedRef.current || !isRenderingRef.current) return;
         animationFrameId.current = requestAnimationFrame(animate);
         
-        if (controlsRef.current) {
-          controlsRef.current.update();
-        }
+        if (controlsRef.current) controlsRef.current.update();
         
         if (rendererRef.current && sceneRef.current && cameraRef.current) {
           rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -253,7 +390,7 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       animate();
     };
 
-    // MOUSE INTERACTION
+    // FIXED: Mouse interaction with better error handling
     const handleMouseMove = (event) => {
       if (!canvasRef.current || !sceneRef.current || !cameraRef.current) return;
       
@@ -268,40 +405,51 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       
       if (intersects.length > 0) {
         const item = intersects[0].object;
+        
+        // Debug: Log what's in userData
+        console.log('📦 Hovered item userData:', item.userData);
+        
+        // Ensure we have valid data with fallbacks
+        const userData = item.userData || {};
+        
         setHoveredItem({
-          name: item.userData.itemName,
-          dimensions: item.userData.dimensions,
-          color: item.userData.originalColor,
-          position: item.userData.originalPosition,
-          isOutOfBounds: item.userData.isOutOfBounds,
-          isUnpacked: item.userData.isUnpacked,
-          rotation: item.userData.rotation,
-          reason: item.userData.reason
+          name: userData.itemName || userData.name || 'Unknown Item',
+          dimensions: userData.dimensions || { width: 0, height: 0, depth: 0 },
+          color: userData.originalColor || userData.color || '#cccccc',
+          position: userData.originalPosition || { x: 0, y: 0, z: 0 },
+          isOutOfBounds: userData.isOutOfBounds || false,
+          isUnpacked: userData.isUnpacked || false,
+          rotation: userData.rotation || { x: 0, y: 0, z: 0 },
+          reason: userData.reason || ''
         });
         
+        // Highlight hovered item
         allItems.forEach(obj => {
           if (obj.material) {
-            if (obj === item) {
-              obj.material.emissive = new THREE.Color(0x333333);
-              obj.material.emissiveIntensity = 0.5;
-            } else {
-              obj.material.emissive = new THREE.Color(0x000000);
-              obj.material.emissiveIntensity = 0;
-            }
+            try {
+              if (obj === item) {
+                obj.material.emissive = new THREE.Color(0x444444);
+                obj.material.emissiveIntensity = 0.5;
+              } else {
+                obj.material.emissive = new THREE.Color(0x000000);
+                obj.material.emissiveIntensity = 0;
+              }
+            } catch (e) {}
           }
         });
       } else {
         setHoveredItem(null);
         allItems.forEach(obj => {
           if (obj.material) {
-            obj.material.emissive = new THREE.Color(0x000000);
-            obj.material.emissiveIntensity = 0;
+            try {
+              obj.material.emissive = new THREE.Color(0x000000);
+              obj.material.emissiveIntensity = 0;
+            } catch (e) {}
           }
         });
       }
     };
 
-    // Handle resize
     const handleResize = () => {
       if (!canvasRef.current || !cameraRef.current || !rendererRef.current) return;
       
@@ -310,10 +458,9 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       
       cameraRef.current.aspect = width / height;
       cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(width, height, false);
+      rendererRef.current.setSize(width, height);
     };
 
-    // Initialize
     const initTimer = setTimeout(() => {
       if (initThreeJS()) {
         window.addEventListener('resize', handleResize);
@@ -324,7 +471,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       }
     }, 100);
 
-    // Cleanup
     return () => {
       console.log('🧹 Component unmounting...');
       isMountedRef.current = false;
@@ -352,103 +498,89 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     };
   }, [cleanupScene]);
 
-  // Update camera based on view mode - FIXED
+  // ==================== CAMERA VIEW MODE ====================
+
   useEffect(() => {
     if (!cameraRef.current || !controlsRef.current || !packingResult) return;
     
-    const containerWidth = parseFloat(packingResult?.visualization_data?.container?.width) || 17.0;
-    const containerHeight = parseFloat(packingResult?.visualization_data?.container?.height) || 8.0;
-    const containerDepth = parseFloat(packingResult?.visualization_data?.container?.depth) || 10.0;
+    const containerData = packingResult?.visualization_data?.container || 
+                         (packingResult?.bins?.[0]?.dimensions ? {
+                           width: packingResult.bins[0].dimensions[0],
+                           height: packingResult.bins[0].dimensions[1],
+                           depth: packingResult.bins[0].dimensions[2]
+                         } : null);
     
-    const unpackedItems = packingResult?.visualization_data?.unpacked_items || [];
+    const containerWidth = parseFloat(containerData?.width) || 17.0;
+    const containerHeight = parseFloat(containerData?.height) || 8.0;
+    const containerDepth = parseFloat(containerData?.depth) || 10.0;
+    
+    const unpackedItems = packingResult?.visualization_data?.unpacked_items || 
+                         packingResult?.unpacked_items || [];
     const hasUnpackedItems = unpackedItems.length > 0;
     
-    // If unpacked items exist and we're showing them, adjust view to show both
+    const containerCenterX = containerWidth / 2;
+    const containerCenterY = containerHeight / 2;
+    const containerCenterZ = containerDepth / 2;
+    
+    let targetX = containerCenterX;
+    let targetY = containerCenterY;
+    let targetZ = containerCenterZ;
+    let cameraPos = { x: 0, y: 0, z: 0 };
+    
     if (hasUnpackedItems && showUnpackedArea) {
       const unpackedAreaWidth = 30;
       const totalWidth = containerWidth + unpackedAreaWidth + 15;
-      
-      switch(viewMode) {
-        case 'Top':
-          cameraRef.current.position.set(totalWidth / 2, 40, 0);
-          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
-          break;
-        case 'Front':
-          cameraRef.current.position.set(totalWidth / 2, containerHeight/2, 40);
-          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
-          break;
-        case 'Side':
-          cameraRef.current.position.set(40, containerHeight/2, containerDepth/2);
-          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
-          break;
-        default: // '3D'
-          cameraRef.current.position.set(totalWidth * 0.8, containerHeight * 1.5, totalWidth * 0.6);
-          cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = true;
-          controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
-      }
-    } else {
-      // Only show container
-      switch(viewMode) {
-        case 'Top':
-          cameraRef.current.position.set(containerWidth/2, 40, containerDepth/2);
-          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
-          break;
-        case 'Front':
-          cameraRef.current.position.set(containerWidth/2, containerHeight/2, 40);
-          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
-          break;
-        case 'Side':
-          cameraRef.current.position.set(40, containerHeight/2, containerDepth/2);
-          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = false;
-          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
-          break;
-        default: // '3D'
-          cameraRef.current.position.set(25, 20, 25);
-          cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
-          controlsRef.current.enableRotate = true;
-          controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
-      }
+      targetX = totalWidth / 2;
     }
     
-    controlsRef.current.update();
-  }, [viewMode, packingResult, showUnpackedArea]);
+    switch(viewMode) {
+      case 'Top':
+        cameraPos = { x: targetX, y: 50, z: targetZ };
+        controlsRef.current.enableRotate = false;
+        controlsRef.current.enablePan = true;
+        break;
+      case 'Front':
+        cameraPos = { x: targetX, y: targetY, z: 50 };
+        controlsRef.current.enableRotate = false;
+        controlsRef.current.enablePan = true;
+        break;
+      case 'Side':
+        cameraPos = { x: 50, y: targetY, z: targetZ };
+        controlsRef.current.enableRotate = false;
+        controlsRef.current.enablePan = true;
+        break;
+      default:
+        if (hasUnpackedItems && showUnpackedArea) {
+          cameraPos = { 
+            x: targetX + 15, 
+            y: containerHeight * 1.8, 
+            z: containerDepth * 1.8 
+          };
+        } else {
+          cameraPos = { 
+            x: containerWidth * 0.8, 
+            y: containerHeight * 1.2, 
+            z: containerDepth * 1.2 
+          };
+        }
+        controlsRef.current.enableRotate = true;
+        controlsRef.current.enablePan = true;
+        break;
+    }
+    
+    try {
+      cameraRef.current.position.set(cameraPos.x, cameraPos.y, cameraPos.z);
+      cameraRef.current.lookAt(targetX, targetY, targetZ);
+      controlsRef.current.target.set(targetX, targetY, targetZ);
+      controlsRef.current.update();
+    } catch (error) {
+      console.error('Error updating camera:', error);
+    }
+    
+  }, [viewMode]);
 
-  // Helper function to handle rotation dimensions
-  const getRotatedDimensions = (width, height, depth, rotX, rotY, rotZ) => {
-    const is90X = Math.abs(Math.abs(rotX % 360) - 90) < 1;
-    const is90Y = Math.abs(Math.abs(rotY % 360) - 90) < 1;
-    const is90Z = Math.abs(Math.abs(rotZ % 360) - 90) < 1;
-    
-    let w = width, h = height, d = depth;
-    
-    if (is90X) {
-      [h, d] = [d, h];
-    }
-    
-    if (is90Y) {
-      [w, d] = [d, w];
-    }
-    
-    if (is90Z) {
-      [w, h] = [h, w];
-    }
-    
-    return { width: w, height: h, depth: d };
-  };
+  // ==================== VISUALIZATION CREATION ====================
 
-  // Create visualization - FIXED CAMERA ALIGNMENT
   useEffect(() => {
     if (!packingResult || !sceneRef.current || !isInitialized) {
       console.log('⚠️ Cannot create visualization:', {
@@ -461,17 +593,14 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
 
     console.log('🔄 Creating visualization from packing result...');
     
-    // Clean up previous visualization
     cleanupScene();
     itemMeshesRef.current = [];
     unpackedMeshesRef.current = [];
     setOutOfBoundsItems([]);
     
-    // Get container data
     let containerData = null;
     if (packingResult.visualization_data?.container) {
       containerData = packingResult.visualization_data.container;
-      console.log('✅ Using visualization_data container:', containerData);
     } else if (packingResult.bins?.[0]?.dimensions) {
       containerData = {
         width: packingResult.bins[0].dimensions[0],
@@ -479,7 +608,6 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         depth: packingResult.bins[0].dimensions[2],
         color: '#3B82F6'
       };
-      console.log('✅ Using bins container');
     }
 
     if (!containerData) {
@@ -488,38 +616,27 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       return;
     }
 
-    // Parse container dimensions
     const containerWidth = parseFloat(containerData.width) || 17.0;
     const containerHeight = parseFloat(containerData.height) || 8.0;
     const containerDepth = parseFloat(containerData.depth) || 10.0;
 
-    console.log('📦 Container dimensions:', {
-      width: containerWidth,
-      height: containerHeight,
-      depth: containerDepth
-    });
+    console.log('📦 Container dimensions:', { containerWidth, containerHeight, containerDepth });
 
-    // Get unpacked items data
     let unpackedItems = [];
     if (packingResult.visualization_data?.unpacked_items) {
       unpackedItems = packingResult.visualization_data.unpacked_items;
-      console.log('✅ Using visualization_data unpacked_items:', unpackedItems.length);
     } else if (packingResult.unpacked_items) {
       unpackedItems = packingResult.unpacked_items;
-      console.log('✅ Using unpacked_items:', unpackedItems.length);
     }
 
-    console.log(`📦 Unpacked items: ${unpackedItems.length}`);
-
-    // Create main container group
+    // ============ CREATE CONTAINER ============
     containerGroupRef.current = new THREE.Group();
     
-    // Container mesh (transparent)
     const containerGeometry = new THREE.BoxGeometry(containerWidth, containerHeight, containerDepth);
     const containerMaterial = new THREE.MeshPhongMaterial({
       color: 0x3B82F6,
       transparent: true,
-      opacity: 0.03,
+      opacity: 0.05,
       side: THREE.DoubleSide,
       depthWrite: false
     });
@@ -529,35 +646,211 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     containerMesh.userData.isContainer = true;
     containerGroupRef.current.add(containerMesh);
 
-    // Container wireframe
     const edges = new THREE.EdgesGeometry(containerGeometry);
-    const lineMaterial = new THREE.LineBasicMaterial({ 
-      color: 0x1e40af,
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.9
-    });
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x1e40af });
     const wireframe = new THREE.LineSegments(edges, lineMaterial);
     wireframe.position.set(containerWidth / 2, containerHeight / 2, containerDepth / 2);
     containerGroupRef.current.add(wireframe);
 
+    const boundaryMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+
+    const bottomBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(containerWidth, 0.01, containerDepth)),
+      boundaryMaterial
+    );
+    bottomBoundary.position.set(containerWidth / 2, 0, containerDepth / 2);
+    containerGroupRef.current.add(bottomBoundary);
+
+    const topBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(containerWidth, 0.01, containerDepth)),
+      boundaryMaterial
+    );
+    topBoundary.position.set(containerWidth / 2, containerHeight, containerDepth / 2);
+    containerGroupRef.current.add(topBoundary);
+
+    const leftBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.01, containerHeight, containerDepth)),
+      boundaryMaterial
+    );
+    leftBoundary.position.set(0, containerHeight / 2, containerDepth / 2);
+    containerGroupRef.current.add(leftBoundary);
+
+    const rightBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.01, containerHeight, containerDepth)),
+      boundaryMaterial
+    );
+    rightBoundary.position.set(containerWidth, containerHeight / 2, containerDepth / 2);
+    containerGroupRef.current.add(rightBoundary);
+
+    const frontBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(containerWidth, containerHeight, 0.01)),
+      boundaryMaterial
+    );
+    frontBoundary.position.set(containerWidth / 2, containerHeight / 2, 0);
+    containerGroupRef.current.add(frontBoundary);
+
+    const backBoundary = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(containerWidth, containerHeight, 0.01)),
+      boundaryMaterial
+    );
+    backBoundary.position.set(containerWidth / 2, containerHeight / 2, containerDepth);
+    containerGroupRef.current.add(backBoundary);
+
+    const cornerPoints = [
+      [0, 0, 0], [containerWidth, 0, 0], [0, containerHeight, 0], [containerWidth, containerHeight, 0],
+      [0, 0, containerDepth], [containerWidth, 0, containerDepth], [0, containerHeight, containerDepth], [containerWidth, containerHeight, containerDepth]
+    ];
+    
+    cornerPoints.forEach(pos => {
+      try {
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.15),
+          new THREE.MeshBasicMaterial({ color: 0xff0000 })
+        );
+        sphere.position.set(pos[0], pos[1], pos[2]);
+        containerGroupRef.current.add(sphere);
+      } catch (e) {}
+    });
+
     sceneRef.current.add(containerGroupRef.current);
 
-    // Create unpacked area group only if there are unpacked items AND showUnpackedArea is true
-    unpackedAreaGroupRef.current = null;
-    if (unpackedItems.length > 0 && showUnpackedArea) {
+    // ============ CREATE PACKED ITEMS ============
+    let items = [];
+    if (packingResult.visualization_data?.items) {
+      items = packingResult.visualization_data.items;
+    } else if (packingResult.bins?.[0]?.items) {
+      items = packingResult.bins[0].items;
+    } else if (packingResult.packedItems) {
+      items = packingResult.packedItems;
+    }
+
+    console.log(`📦 Creating ${items.length} packed items`);
+    
+    items.forEach((item, index) => {
+      try {
+        if (!item.dimensions || !item.position) {
+          console.warn(`Item ${index} missing dimensions or position:`, item);
+          return;
+        }
+        
+        let width, height, depth, posX, posY, posZ, rotX, rotY, rotZ, color, id, name;
+        
+        [width, height, depth] = item.dimensions.map(d => {
+          if (d && typeof d === 'object' && d.toString) {
+            return parseFloat(d.toString());
+          }
+          return parseFloat(d) || 0.5;
+        });
+        
+        [posX, posY, posZ] = item.position.map(p => {
+          if (p && typeof p === 'object' && p.toString) {
+            return parseFloat(p.toString());
+          }
+          return parseFloat(p) || 0;
+        });
+        
+        [rotX, rotY, rotZ] = (item.rotation || [0, 0, 0]).map(r => {
+          if (r && typeof r === 'object' && r.toString) {
+            return parseFloat(r.toString());
+          }
+          return parseFloat(r) || 0;
+        });
+        
+        color = item.color || '#10b981';
+        id = item.id || `item_${index}`;
+        name = item.original_name || item.name || id;
+
+        width = Math.max(width, 0.01);
+        height = Math.max(height, 0.01);
+        depth = Math.max(depth, 0.01);
+
+        const maxX = containerWidth - width - 0.001;
+        const maxY = containerHeight - height - 0.001;
+        const maxZ = containerDepth - depth - 0.001;
+        
+        posX = Math.max(0.001, Math.min(posX, maxX));
+        posY = Math.max(0.001, Math.min(posY, maxY));
+        posZ = Math.max(0.001, Math.min(posZ, maxZ));
+
+        const rotatedDims = getRotatedDimensions(width, height, depth, rotX, rotY, rotZ);
+        
+        const centerX = posX + rotatedDims.width / 2;
+        const centerY = posY + rotatedDims.height / 2;
+        const centerZ = posZ + rotatedDims.depth / 2;
+
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        const material = new THREE.MeshPhongMaterial({
+          color: new THREE.Color(color),
+          transparent: true,
+          opacity: 0.9,
+          shininess: 60,
+          emissive: new THREE.Color(0x222222),
+          emissiveIntensity: 0.1,
+          specular: new THREE.Color(0x333333)
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(centerX, centerY, centerZ);
+        mesh.rotation.set(
+          THREE.MathUtils.degToRad(rotX),
+          THREE.MathUtils.degToRad(rotY),
+          THREE.MathUtils.degToRad(rotZ)
+        );
+        
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        const edges2 = new THREE.EdgesGeometry(geometry);
+        const line2 = new THREE.LineSegments(
+          edges2, 
+          new THREE.LineBasicMaterial({ color: 0x000000 })
+        );
+        mesh.add(line2);
+        
+        // FIXED: Enhanced userData with multiple fallback fields
+        mesh.userData = {
+          isPackedItem: true,
+          itemName: name,
+          name: name,
+          dimensions: { width, height, depth },
+          width: width,
+          height: height,
+          depth: depth,
+          rotatedDimensions: rotatedDims,
+          originalColor: color,
+          color: color,
+          originalPosition: { x: posX, y: posY, z: posZ },
+          position: { x: posX, y: posY, z: posZ },
+          centerPosition: { x: centerX, y: centerY, z: centerZ },
+          isOutOfBounds: false,
+          isUnpacked: false,
+          rotation: { x: rotX, y: rotY, z: rotZ }
+        };
+        
+        sceneRef.current.add(mesh);
+        itemMeshesRef.current.push(mesh);
+        
+        console.log(`✅ Created ${name} with userData:`, mesh.userData);
+
+      } catch (error) {
+        console.error(`❌ Error creating packed item ${index}:`, error);
+      }
+    });
+
+    // ============ CREATE UNPACKED AREA AND ITEMS ============
+    if (unpackedItems.length > 0) {
+      console.log(`📦 Creating unpacked area with ${unpackedItems.length} items`);
+      
       unpackedAreaGroupRef.current = new THREE.Group();
       
-      // Calculate unpacked area position (to the right of container with some spacing)
       const unpackedAreaX = containerWidth + 15;
       const unpackedAreaWidth = 30;
       const unpackedAreaHeight = containerHeight;
       const unpackedAreaDepth = Math.max(containerDepth, 15);
       
-      // Unpacked area visual representation (dashed box)
       const unpackedAreaGeometry = new THREE.BoxGeometry(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth);
       const unpackedAreaMaterial = new THREE.MeshPhongMaterial({
-        color: 0x9ca3af,
+        color: 0xef4444,
         transparent: true,
         opacity: 0.02,
         side: THREE.DoubleSide,
@@ -569,109 +862,36 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       unpackedAreaMesh.userData.isUnpackedArea = true;
       unpackedAreaGroupRef.current.add(unpackedAreaMesh);
 
-      // Unpacked area wireframe (dashed lines)
-      createDashedBox(unpackedAreaWidth, unpackedAreaHeight, unpackedAreaDepth, unpackedAreaX, unpackedAreaHeight / 2, unpackedAreaDepth / 2, 0x6b7280);
+      createDashedBox(
+        unpackedAreaWidth, 
+        unpackedAreaHeight, 
+        unpackedAreaDepth, 
+        unpackedAreaX, 
+        unpackedAreaHeight / 2, 
+        unpackedAreaDepth / 2, 
+        0xef4444
+      );
       
       sceneRef.current.add(unpackedAreaGroupRef.current);
-    }
-
-    // Get packed items data
-    let items = [];
-    if (packingResult.visualization_data?.items) {
-      items = packingResult.visualization_data.items;
-      console.log('✅ Using visualization_data items:', items.length);
-    } else if (packingResult.bins?.[0]?.items) {
-      items = packingResult.bins[0].items;
-      console.log('✅ Using bins items:', items.length);
-    } else if (packingResult.packedItems) {
-      items = packingResult.packedItems;
-      console.log('✅ Using packedItems:', items.length);
-    }
-
-    // Create packed items
-    console.log(`📦 Creating ${items.length} packed items`);
-    
-    items.forEach((item, index) => {
-      try {
-        let width, height, depth, posX, posY, posZ, rotX, rotY, rotZ, color, id, name;
-        
-        [width, height, depth] = item.dimensions.map(d => parseFloat(d) || 0.5);
-        [posX, posY, posZ] = item.position.map(p => parseFloat(p) || 0);
-        [rotX, rotY, rotZ] = item.rotation.map(r => parseFloat(r) || 0);
-        
-        color = item.color || '#10b981'; // Changed to green for packed items
-        id = item.id || `item_${index}`;
-        name = item.original_name || item.name || id;
-
-        width = Math.max(width, 0.01);
-        height = Math.max(height, 0.01);
-        depth = Math.max(depth, 0.01);
-
-        const rotatedDims = getRotatedDimensions(width, height, depth, rotX, rotY, rotZ);
-        const effectiveWidth = rotatedDims.width;
-        const effectiveHeight = rotatedDims.height;
-        const effectiveDepth = rotatedDims.depth;
-
-        const centerX = posX + effectiveWidth / 2;
-        const centerY = posY + effectiveHeight / 2;
-        const centerZ = posZ + effectiveDepth / 2;
-
-        const geometry = new THREE.BoxGeometry(width, height, depth);
-        const material = new THREE.MeshPhongMaterial({
-          color: new THREE.Color(color),
-          transparent: true,
-          opacity: 0.85,
-          shininess: 50,
-          specular: new THREE.Color(0x222222)
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
-        
-        mesh.position.set(centerX, centerY, centerZ);
-        
-        mesh.rotation.set(
-          THREE.MathUtils.degToRad(rotX),
-          THREE.MathUtils.degToRad(rotY),
-          THREE.MathUtils.degToRad(rotZ)
-        );
-        
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        
-        mesh.userData.isPackedItem = true;
-        mesh.userData.itemName = name || `Item ${index}`;
-        mesh.userData.dimensions = { width, height, depth };
-        mesh.userData.effectiveDimensions = rotatedDims;
-        mesh.userData.originalColor = color;
-        mesh.userData.originalPosition = { x: posX, y: posY, z: posZ };
-        mesh.userData.centerPosition = { x: centerX, y: centerY, z: centerZ };
-        mesh.userData.isOutOfBounds = false;
-        mesh.userData.isUnpacked = false;
-        mesh.userData.rotation = { x: rotX, y: rotY, z: rotZ };
-        
-        sceneRef.current.add(mesh);
-        itemMeshesRef.current.push(mesh);
-
-      } catch (error) {
-        console.error(`❌ Error creating packed item ${index}:`, error);
-      }
-    });
-
-    // Create unpacked items only if showUnpackedArea is true
-    if (showUnpackedArea && unpackedItems.length > 0) {
-      console.log(`📦 Creating ${unpackedItems.length} unpacked items`);
       
-      const unpackedAreaX = containerWidth + 15;
-      const unpackedAreaWidth = 30;
-      const unpackedAreaDepth = Math.max(containerDepth, 15);
       const gridCellSize = 8;
       const itemsPerRow = 3;
       
       unpackedItems.forEach((item, index) => {
         try {
+          if (!item.dimensions) {
+            console.warn(`Unpacked item ${index} missing dimensions:`, item);
+            return;
+          }
+          
           let width, height, depth, color, id, name, reason;
           
-          [width, height, depth] = item.dimensions.map(d => parseFloat(d) || 0.5);
+          [width, height, depth] = item.dimensions.map(d => {
+            if (d && typeof d === 'object' && d.toString) {
+              return parseFloat(d.toString());
+            }
+            return parseFloat(d) || 0.5;
+          });
           
           color = item.color || '#ef4444';
           id = item.id || `unpacked_${index}`;
@@ -688,169 +908,129 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
           const startX = unpackedAreaX - unpackedAreaWidth / 2 + gridCellSize / 2;
           const startZ = unpackedAreaDepth / 2 - gridCellSize / 2;
           
-          const posX = startX + col * gridCellSize;
-          const posZ = startZ - row * gridCellSize;
-          const posY = height / 2;
+          const cornerX = startX + col * gridCellSize;
+          const cornerZ = startZ - row * gridCellSize;
+          const cornerY = 0;
+          
+          const maxX = unpackedAreaX + unpackedAreaWidth / 2 - width - 0.001;
+          const minX = unpackedAreaX - unpackedAreaWidth / 2 + 0.001;
+          const maxZ = unpackedAreaDepth - depth - 0.001;
+          const minZ = 0.001;
+          
+          const clampedX = Math.max(minX, Math.min(cornerX, maxX));
+          const clampedZ = Math.max(minZ, Math.min(cornerZ, maxZ));
+          const clampedY = Math.max(0.001, cornerY);
+          
+          const centerX = clampedX + width / 2;
+          const centerY = clampedY + height / 2;
+          const centerZ = clampedZ + depth / 2;
 
           const geometry = new THREE.BoxGeometry(width, height, depth);
           const material = new THREE.MeshPhongMaterial({
             color: new THREE.Color(color),
             transparent: true,
-            opacity: 0.7,
+            opacity: 0.8,
             shininess: 30,
-            specular: new THREE.Color(0x111111)
+            emissive: new THREE.Color(0x331111),
+            emissiveIntensity: 0.1
           });
           
           const mesh = new THREE.Mesh(geometry, material);
-          
-          mesh.position.set(posX, posY, posZ);
+          mesh.position.set(centerX, centerY, centerZ);
           
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           
-          mesh.userData.isUnpackedItem = true;
-          mesh.userData.itemName = name;
-          mesh.userData.dimensions = { width, height, depth };
-          mesh.userData.originalColor = color;
-          mesh.userData.originalPosition = { x: posX, y: posY, z: posZ };
-          mesh.userData.isOutOfBounds = false;
-          mesh.userData.isUnpacked = true;
-          mesh.userData.reason = reason;
+          const edges2 = new THREE.EdgesGeometry(geometry);
+          const line2 = new THREE.LineSegments(
+            edges2, 
+            new THREE.LineBasicMaterial({ color: 0x440000 })
+          );
+          mesh.add(line2);
+          
+          // FIXED: Enhanced userData with multiple fallback fields
+          mesh.userData = {
+            isUnpackedItem: true,
+            itemName: name,
+            name: name,
+            dimensions: { width, height, depth },
+            width: width,
+            height: height,
+            depth: depth,
+            originalColor: color,
+            color: color,
+            originalPosition: { x: clampedX, y: clampedY, z: clampedZ },
+            position: { x: clampedX, y: clampedY, z: clampedZ },
+            centerPosition: { x: centerX, y: centerY, z: centerZ },
+            isOutOfBounds: false,
+            isUnpacked: true,
+            reason: reason
+          };
           
           sceneRef.current.add(mesh);
           unpackedMeshesRef.current.push(mesh);
+          
+          console.log(`✅ Created unpacked ${name}`);
 
         } catch (error) {
           console.error(`❌ Error creating unpacked item ${index}:`, error);
         }
       });
+
+      try {
+        const points = [];
+        points.push(new THREE.Vector3(containerWidth + 7.5, 0, 0));
+        points.push(new THREE.Vector3(containerWidth + 7.5, containerHeight + 2, 0));
+        
+        const separatorGeometry = new THREE.BufferGeometry().setFromPoints(points);
+        const separatorMaterial = new THREE.LineDashedMaterial({
+          color: 0x94a3b8,
+          dashSize: 0.5,
+          gapSize: 0.3
+        });
+        
+        const separatorLine = new THREE.Line(separatorGeometry, separatorMaterial);
+        separatorLine.computeLineDistances();
+        sceneRef.current.add(separatorLine);
+        separatorLineRef.current = separatorLine;
+      } catch (error) {
+        console.error('Error creating separator line:', error);
+      }
     }
 
-    // Create a separator line between container and unpacked area if showing both
-    if (unpackedItems.length > 0 && showUnpackedArea) {
-      const separatorGeometry = new THREE.BufferGeometry();
-      const separatorVertices = new Float32Array([
-        containerWidth + 5, 0, 0,
-        containerWidth + 5, containerHeight + 5, 0
-      ]);
-      separatorGeometry.setAttribute('position', new THREE.BufferAttribute(separatorVertices, 3));
-      
-      const separatorMaterial = new THREE.LineDashedMaterial({
-        color: 0x64748b,
-        dashSize: 1,
-        gapSize: 0.5,
-        linewidth: 1
-      });
-      
-      const separatorLine = new THREE.Line(separatorGeometry, separatorMaterial);
-      separatorLine.computeLineDistances();
-      sceneRef.current.add(separatorLine);
-    }
-
-    // Set debug info
     const packedCount = items.length;
     const unpackedCount = unpackedItems.length;
-    const efficiency = packingResult?.statistics?.space_utilization || 0;
+    const efficiency = packingResult?.statistics?.space_utilization || 
+                      packingResult?.statistics?.packing_efficiency || 
+                      packingResult?.efficiency || 0;
     
     setDebugInfo(`Packed: ${packedCount} | Unpacked: ${unpackedCount} | Utilization: ${efficiency.toFixed(1)}%`);
 
-    // Adjust camera to show appropriate view
-    if (cameraRef.current && controlsRef.current) {
-      // Recalculate based on current visibility
-      const unpackedItems = packingResult?.visualization_data?.unpacked_items || [];
-      const hasUnpackedItems = unpackedItems.length > 0;
-      
-      if (hasUnpackedItems && showUnpackedArea) {
-        const unpackedAreaWidth = 30;
-        const totalWidth = containerWidth + unpackedAreaWidth + 15;
-        const maxHeight = Math.max(containerHeight, 8);
-        
-        cameraRef.current.position.set(totalWidth * 0.8, maxHeight * 1.5, totalWidth * 0.6);
-        cameraRef.current.lookAt(totalWidth / 2, containerHeight/2, containerDepth/2);
-        
-        controlsRef.current.target.set(totalWidth / 2, containerHeight/2, containerDepth/2);
-      } else {
-        cameraRef.current.position.set(25, 20, 25);
-        cameraRef.current.lookAt(containerWidth/2, containerHeight/2, containerDepth/2);
-        
-        controlsRef.current.target.set(containerWidth/2, containerHeight/2, containerDepth/2);
-      }
-      controlsRef.current.update();
+  }, [packingResult, isInitialized, cleanupScene, getRotatedDimensions, createDashedBox]);
+
+  // ==================== TOGGLE UNPACKED AREA VISIBILITY ====================
+  
+  useEffect(() => {
+    if (unpackedAreaGroupRef.current) {
+      unpackedAreaGroupRef.current.visible = showUnpackedArea;
     }
-
-    // Restart animation loop
-    if (!animationFrameId.current) {
-      const animate = () => {
-        if (!isMountedRef.current) return;
-        
-        animationFrameId.current = requestAnimationFrame(animate);
-        
-        if (controlsRef.current) {
-          controlsRef.current.update();
-        }
-        
-        if (rendererRef.current && sceneRef.current && cameraRef.current) {
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
-        }
-      };
-      
-      animate();
-      isRenderingRef.current = true;
-    }
-
-  }, [packingResult, isInitialized, cleanupScene, showUnpackedArea]);
-
-  // Helper function to create dashed box
-  const createDashedBox = (width, height, depth, centerX, centerY, centerZ, color) => {
-    const halfWidth = width / 2;
-    const halfHeight = height / 2;
-    const halfDepth = depth / 2;
     
-    const edges = [
-      [[-halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, -halfDepth]],
-      [[halfWidth, -halfHeight, -halfDepth], [halfWidth, -halfHeight, halfDepth]],
-      [[halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, halfDepth]],
-      [[-halfWidth, -halfHeight, halfDepth], [-halfWidth, -halfHeight, -halfDepth]],
-      
-      [[-halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
-      [[halfWidth, halfHeight, -halfDepth], [halfWidth, halfHeight, halfDepth]],
-      [[halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, halfDepth]],
-      [[-halfWidth, halfHeight, halfDepth], [-halfWidth, halfHeight, -halfDepth]],
-      
-      [[-halfWidth, -halfHeight, -halfDepth], [-halfWidth, halfHeight, -halfDepth]],
-      [[halfWidth, -halfHeight, -halfDepth], [halfWidth, halfHeight, -halfDepth]],
-      [[halfWidth, -halfHeight, halfDepth], [halfWidth, halfHeight, halfDepth]],
-      [[-halfWidth, -halfHeight, halfDepth], [-halfWidth, halfHeight, halfDepth]]
-    ];
-    
-    edges.forEach(([start, end]) => {
-      const geometry = new THREE.BufferGeometry();
-      const vertices = new Float32Array([
-        start[0], start[1], start[2],
-        end[0], end[1], end[2]
-      ]);
-      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-      
-      const material = new THREE.LineDashedMaterial({
-        color: color,
-        dashSize: 0.5,
-        gapSize: 0.3,
-        linewidth: 1
-      });
-      
-      const line = new THREE.Line(geometry, material);
-      line.computeLineDistances();
-      line.position.set(centerX, centerY, centerZ);
-      
-      if (unpackedAreaGroupRef.current) {
-        unpackedAreaGroupRef.current.add(line);
-      } else {
-        sceneRef.current.add(line);
+    unpackedMeshesRef.current.forEach(mesh => {
+      if (mesh) {
+        mesh.visible = showUnpackedArea;
       }
     });
-  };
+    
+    if (separatorLineRef.current) {
+      separatorLineRef.current.visible = showUnpackedArea;
+    }
+    
+    console.log(`👁️ Unpacked area visibility: ${showUnpackedArea ? 'SHOW' : 'HIDE'}`);
+    
+  }, [showUnpackedArea]);
 
-  // Calculate stats
+  // ==================== STATS CALCULATION ====================
+
   const packedCount = packingResult?.visualization_data?.items?.length || 
                      packingResult?.bins?.[0]?.items?.length || 
                      packingResult?.packedItems?.length || 0;
@@ -862,17 +1042,40 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
                     packingResult?.statistics?.packing_efficiency || 
                     packingResult?.efficiency || 0;
 
-  // Handle view mode change
+  const containerVolume = (() => {
+    try {
+      const container = packingResult?.visualization_data?.container || 
+                       (packingResult?.bins?.[0]?.dimensions ? {
+                         width: packingResult.bins[0].dimensions[0],
+                         height: packingResult.bins[0].dimensions[1],
+                         depth: packingResult.bins[0].dimensions[2]
+                       } : null);
+      
+      if (!container) return '0.00';
+      
+      const width = container.width || (Array.isArray(container) ? container[0] : 17.0);
+      const height = container.height || (Array.isArray(container) ? container[1] : 8.0);
+      const depth = container.depth || (Array.isArray(container) ? container[2] : 10.0);
+      
+      return (parseFloat(width) * parseFloat(height) * parseFloat(depth)).toFixed(2);
+    } catch (error) {
+      console.error('Error calculating container volume:', error);
+      return '0.00';
+    }
+  })();
+
+  // ==================== HANDLERS ====================
+
   const handleViewModeChange = (mode) => {
     setViewMode(mode);
   };
 
-  // Toggle unpacked area visibility
   const toggleUnpackedArea = () => {
     setShowUnpackedArea(!showUnpackedArea);
   };
 
-  // Error display
+  // ==================== RENDER ====================
+
   if (initializationError) {
     return (
       <div style={{ 
@@ -892,6 +1095,20 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         <div style={{ fontSize: '14px', color: '#475569' }}>
           {initializationError}
         </div>
+        <button 
+          onClick={() => window.location.reload()}
+          style={{
+            padding: '8px 16px',
+            background: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            marginTop: '10px'
+          }}
+        >
+          Reload
+        </button>
       </div>
     );
   }
@@ -909,15 +1126,15 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
         gap: '20px'
       }}>
         <div style={{
-          width: '40px',
-          height: '40px',
-          border: '3px solid #e2e8f0',
-          borderTop: '3px solid #3b82f6',
+          width: '50px',
+          height: '50px',
+          border: '4px solid #e2e8f0',
+          borderTop: '4px solid #3b82f6',
           borderRadius: '50%',
           animation: 'spin 1s linear infinite'
         }} />
         <div style={{ fontSize: '16px', color: '#4b5563' }}>
-          Loading visualization...
+          Loading 3D visualization...
         </div>
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
@@ -928,18 +1145,19 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
     return (
       <div style={{ 
         width: '100%', 
-        height: '600px', 
+        height: '100%', 
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         background: '#f8fafc',
+        borderRadius: '12px',
         flexDirection: 'column',
         gap: '15px'
       }}>
-        <div style={{ fontSize: '40px', color: '#94a3b8' }}>📦</div>
-        <div style={{ fontSize: '18px', color: '#4b5563' }}>No Data</div>
+        <div style={{ fontSize: '60px', color: '#94a3b8' }}>📦</div>
+        <div style={{ fontSize: '20px', color: '#334155', fontWeight: '600' }}>No Packing Data</div>
         <div style={{ fontSize: '14px', color: '#64748b' }}>
-          Run packing calculation
+          Run packing calculation to see 3D visualization
         </div>
       </div>
     );
@@ -950,141 +1168,192 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
       ref={containerRef}
       style={{ 
         width: '100%', 
-        height: '600px', 
+        height: '100%', 
         position: 'relative',
         background: '#f8fafc',
-        borderRadius: '8px',
+        borderRadius: '12px',
         overflow: 'hidden',
-        border: '1px solid #e2e8f0'
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
       }}
     >
-      {/* Stats - SIMPLIFIED (removed legend card) */}
+      {/* Stats Card - Top Left */}
       <div style={{
         position: 'absolute',
-        top: '12px',
-        left: '12px',
-        background: 'rgba(255, 255, 255, 0.95)',
-        padding: '12px 16px',
-        borderRadius: '8px',
+        top: '16px',
+        left: '16px',
+        background: 'rgba(255, 255, 255, 0.98)',
+        padding: '16px 20px',
+        borderRadius: '12px',
         fontSize: '13px',
         color: '#1e293b',
         zIndex: 100,
-        border: '1px solid rgba(203, 213, 225, 0.6)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        minWidth: '200px'
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+        minWidth: '240px',
+        backdropFilter: 'blur(8px)'
       }}>
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '8px', 
-          marginBottom: '8px'
+          gap: '10px', 
+          marginBottom: '12px',
+          borderBottom: '1px solid #e2e8f0',
+          paddingBottom: '10px'
         }}>
           <span style={{ 
-            fontSize: '16px',
-            fontWeight: '600', 
-            color: '#3b82f6' 
-          }}>📦 Packing Results</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span style={{ fontWeight: '600', color: '#475569', minWidth: '80px' }}>Packed:</span>
-          <span style={{ 
-            background: '#dcfce7',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontWeight: '600',
-            color: '#059669'
-          }}>{packedCount}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span style={{ fontWeight: '600', color: '#475569', minWidth: '80px' }}>Unpacked:</span>
-          <span style={{ 
-            background: '#fee2e2',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontWeight: '600',
-            color: '#dc2626'
-          }}>{unpackedCount}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span style={{ fontWeight: '600', color: '#475569', minWidth: '80px' }}>Utilization:</span>
-          <span style={{ 
-            color: efficiency > 70 ? '#10b981' : 
-                   efficiency > 30 ? '#f59e0b' : '#ef4444',
-            fontWeight: '600'
-          }}>
-            {typeof efficiency === 'number' ? efficiency.toFixed(1) : '0.0'}%
-          </span>
-        </div>
-        {unpackedCount > 0 && (
-          <div style={{ 
-            marginTop: '6px',
-            paddingTop: '6px',
-            borderTop: '1px solid rgba(239, 68, 68, 0.3)',
-            fontSize: '12px',
-            color: '#ef4444'
-          }}>
-            <span style={{ fontWeight: '600' }}>⚠️ {unpackedCount} items couldn't fit</span>
-          </div>
-        )}
-      </div>
-
-      {/* Hover tooltip */}
-      {hoveredItem && (
-        <div style={{
-          position: 'absolute',
-          top: '12px',
-          right: '12px',
-          background: hoveredItem.isUnpacked ? 'rgba(239, 68, 68, 0.95)' : 'rgba(0, 0, 0, 0.9)',
-          color: 'white',
-          padding: '12px 14px',
-          borderRadius: '8px',
-          fontSize: '12px',
-          zIndex: 100,
-          maxWidth: '300px',
-          border: hoveredItem.isUnpacked ? '1px solid #ef4444' : '1px solid #374151',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-        }}>
-          <div style={{ 
-            fontWeight: '600', 
-            marginBottom: '6px', 
-            color: hoveredItem.isUnpacked ? '#fecaca' : '#60a5fa',
-            fontSize: '13px',
+            fontSize: '18px',
+            fontWeight: '700', 
+            color: '#0f172a',
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
           }}>
-            {hoveredItem.isUnpacked ? '📦' : '✓'} {hoveredItem.name}
+            <span style={{ fontSize: '22px' }}>📦</span> Packing Results
+          </span>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span style={{ fontWeight: '600', color: '#475569' }}>Container:</span>
+          <span style={{ fontWeight: '500', color: '#0f172a' }}>
+            {containerVolume} m³
+          </span>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span style={{ fontWeight: '600', color: '#475569' }}>Packed:</span>
+          <span style={{ 
+            background: '#dcfce7',
+            padding: '4px 12px',
+            borderRadius: '20px',
+            fontWeight: '600',
+            color: '#059669',
+            fontSize: '12px'
+          }}>{packedCount} items</span>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span style={{ fontWeight: '600', color: '#475569' }}>Unpacked:</span>
+          <span style={{ 
+            background: '#fee2e2',
+            padding: '4px 12px',
+            borderRadius: '20px',
+            fontWeight: '600',
+            color: '#dc2626',
+            fontSize: '12px'
+          }}>{unpackedCount} items</span>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span style={{ fontWeight: '600', color: '#475569' }}>Utilization:</span>
+          <span style={{ 
+            color: efficiency > 70 ? '#059669' : efficiency > 30 ? '#d97706' : '#dc2626',
+            fontWeight: '700',
+            fontSize: '14px'
+          }}>
+            {typeof efficiency === 'number' ? efficiency.toFixed(1) : '0.0'}%
+          </span>
+        </div>
+        
+        {unpackedCount > 0 && (
+          <div style={{ 
+            marginTop: '12px',
+            paddingTop: '12px',
+            borderTop: '1px solid #fee2e2',
+            fontSize: '12px',
+            color: '#b91c1c',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <span style={{ fontSize: '14px' }}>⚠️</span>
+            <span style={{ fontWeight: '600' }}>{unpackedCount} items couldn't fit</span>
+          </div>
+        )}
+      </div>
+  
+      {/* Hover Tooltip - Top Right */}
+      {hoveredItem && hoveredItem.dimensions && (
+        <div style={{
+          position: 'absolute',
+          top: '16px',
+          right: '16px',
+          background: hoveredItem.isUnpacked ? '#991b1b' : '#0f172a',
+          color: 'white',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          fontSize: '13px',
+          zIndex: 100,
+          maxWidth: '300px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          border: hoveredItem.isUnpacked ? '1px solid #ef4444' : '1px solid #334155',
+          backdropFilter: 'blur(8px)'
+        }}>
+          <div style={{ 
+            fontWeight: '700', 
+            marginBottom: '10px', 
+            color: hoveredItem.isUnpacked ? '#fecaca' : '#93c5fd',
+            fontSize: '15px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span style={{ fontSize: '18px' }}>{hoveredItem.isUnpacked ? '📦' : '✓'}</span>
+            {hoveredItem.name}
             {hoveredItem.isUnpacked && (
               <span style={{ 
                 fontSize: '11px', 
-                background: 'rgba(255,255,255,0.2)', 
-                padding: '1px 6px', 
-                borderRadius: '3px' 
+                background: 'rgba(255,255,255,0.15)', 
+                padding: '2px 8px', 
+                borderRadius: '12px' 
               }}>
                 Unpacked
               </span>
             )}
           </div>
-          <div style={{ fontSize: '11px', marginBottom: '4px', opacity: 0.9 }}>
-            <div>Size: {hoveredItem.dimensions.width.toFixed(2)} × {hoveredItem.dimensions.height.toFixed(2)} × {hoveredItem.dimensions.depth.toFixed(2)}</div>
+          
+          <div style={{ fontSize: '12px', opacity: 0.95, lineHeight: '1.6' }}>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '6px' }}>
+              <span style={{ minWidth: '60px', color: '#cbd5e1' }}>Dimensions:</span>
+              <span style={{ fontWeight: '600' }}>
+                {hoveredItem.dimensions.width?.toFixed(2) || '0.00'} × {hoveredItem.dimensions.height?.toFixed(2) || '0.00'} × {hoveredItem.dimensions.depth?.toFixed(2) || '0.00'} m
+              </span>
+            </div>
+            
             {hoveredItem.rotation && (
-              <div>Rotation: ({hoveredItem.rotation.x}°, {hoveredItem.rotation.y}°, {hoveredItem.rotation.z}°)</div>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '6px' }}>
+                <span style={{ minWidth: '60px', color: '#cbd5e1' }}>Rotation:</span>
+                <span style={{ fontWeight: '600' }}>
+                  ({hoveredItem.rotation.x || 0}°, {hoveredItem.rotation.y || 0}°, {hoveredItem.rotation.z || 0}°)
+                </span>
+              </div>
             )}
+            
+            {!hoveredItem.isUnpacked && hoveredItem.position && (
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '6px' }}>
+                <span style={{ minWidth: '60px', color: '#cbd5e1' }}>Position:</span>
+                <span style={{ fontWeight: '600' }}>
+                  ({hoveredItem.position.x?.toFixed(1) || '0.0'}, {hoveredItem.position.y?.toFixed(1) || '0.0'}, {hoveredItem.position.z?.toFixed(1) || '0.0'})
+                </span>
+              </div>
+            )}
+            
             {hoveredItem.isUnpacked && hoveredItem.reason && (
               <div style={{ 
-                marginTop: '4px', 
-                padding: '4px 6px',
+                marginTop: '10px', 
+                padding: '8px 12px',
                 background: 'rgba(255,255,255,0.1)',
-                borderRadius: '3px',
-                fontStyle: 'italic'
+                borderRadius: '6px',
+                fontStyle: 'italic',
+                borderLeft: '3px solid #ef4444'
               }}>
-                Reason: {hoveredItem.reason}
+                {hoveredItem.reason}
               </div>
             )}
           </div>
         </div>
       )}
-
+  
       {/* Canvas */}
       <canvas
         ref={canvasRef}
@@ -1095,119 +1364,162 @@ const BinVisualizer = ({ packingResult, isLoading, originalItems = [] }) => {
           cursor: 'grab'
         }}
       />
-
-      {/* View mode buttons */}
+  
+      {/* View Mode Controls - Left Side */}
       <div style={{
         position: 'absolute',
-        bottom: '50px',
-        right: '12px',
-        background: 'rgba(255, 255, 255, 0.95)',
-        padding: '6px',
-        borderRadius: '8px',
+        bottom: '20px',
+        left: '20px',
+        background: 'rgba(255, 255, 255, 0.98)',
+        padding: '8px',
+        borderRadius: '12px',
         fontSize: '12px',
         color: '#64748b',
-        border: '1px solid rgba(203, 213, 225, 0.6)',
+        border: '1px solid #e2e8f0',
         display: 'flex',
         alignItems: 'center',
         gap: '4px',
-        zIndex: 100
+        zIndex: 100,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+        backdropFilter: 'blur(8px)'
       }}>
         {['3D', 'Top', 'Front', 'Side'].map((mode) => (
           <button
             key={mode}
             onClick={() => handleViewModeChange(mode)}
             style={{
-              padding: '6px 12px',
+              padding: '8px 16px',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '8px',
               background: viewMode === mode ? '#3b82f6' : 'transparent',
-              color: viewMode === mode ? 'white' : '#64748b',
+              color: viewMode === mode ? 'white' : '#475569',
               cursor: 'pointer',
               fontSize: '12px',
-              fontWeight: viewMode === mode ? '600' : '400',
+              fontWeight: viewMode === mode ? '600' : '500',
               transition: 'all 0.2s',
-              minWidth: '50px'
+              minWidth: '60px'
             }}
           >
             {mode}
           </button>
         ))}
       </div>
-
-      {/* Toggle unpacked area button - ONLY if there are unpacked items */}
+  
+      {/* Toggle Unpacked Button - Bottom Right */}
       {unpackedCount > 0 && (
         <button
           onClick={toggleUnpackedArea}
           style={{
             position: 'absolute',
-            bottom: '50px',
-            right: '250px',
-            background: showUnpackedArea ? 'rgba(239, 68, 68, 0.95)' : 'rgba(34, 197, 94, 0.95)',
+            bottom: '20px',
+            right: '20px',
+            background: showUnpackedArea ? '#ef4444' : '#10b981',
             color: 'white',
-            padding: '6px 12px',
+            padding: '8px 16px',
             border: 'none',
-            borderRadius: '4px',
+            borderRadius: '30px',
             fontSize: '12px',
             fontWeight: '600',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '8px',
             zIndex: 100,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             transition: 'all 0.2s'
           }}
         >
-          {showUnpackedArea ? '👁️' : '👁️‍🗨️'}
-          {showUnpackedArea ? ' Hide Unpacked' : ' Show Unpacked'}
+          <span style={{ fontSize: '16px' }}>{showUnpackedArea ? '👁️' : '👁️‍🗨️'}</span>
+          {showUnpackedArea ? 'Hide Unpacked' : 'Show Unpacked'}
         </button>
       )}
-
-      {/* Controls hint */}
+  
+      {/* Controls Hint */}
       <div style={{
         position: 'absolute',
-        bottom: '12px',
-        left: '12px',
+        bottom: '80px',
+        left: '20px',
         background: 'rgba(255, 255, 255, 0.95)',
-        padding: '8px 12px',
-        borderRadius: '6px',
+        padding: '10px 16px',
+        borderRadius: '30px',
         fontSize: '12px',
-        color: '#64748b',
-        border: '1px solid rgba(203, 213, 225, 0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px'
-      }}>
-        <span style={{ fontSize: '14px' }}>🖱️</span>
-        <span>Drag to rotate • Scroll to zoom</span>
-      </div>
-      
-      {/* Simple color indicators (not the card) */}
-      <div style={{
-        position: 'absolute',
-        bottom: '50px',
-        left: '12px',
+        color: '#475569',
+        border: '1px solid #e2e8f0',
         display: 'flex',
         alignItems: 'center',
         gap: '12px',
-        zIndex: 100
+        boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+        backdropFilter: 'blur(8px)'
+      }}>
+        <span style={{ fontSize: '16px' }}>🖱️</span>
+        <span>Drag to rotate • Scroll to zoom • Right drag to pan</span>
+      </div>
+      
+      {/* Color Legend */}
+      <div style={{
+        position: 'absolute',
+        bottom: '140px',
+        left: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px',
+        zIndex: 100,
+        background: 'rgba(255, 255, 255, 0.9)',
+        padding: '8px 16px',
+        borderRadius: '30px',
+        border: '1px solid #e2e8f0',
+        backdropFilter: 'blur(8px)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '2px', opacity: 0.1 }}></div>
+          <div style={{ width: '12px', height: '12px', background: '#3b82f6', borderRadius: '3px', opacity: 0.3 }}></div>
           <span style={{ fontSize: '11px', color: '#475569' }}>Container</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '2px' }}></div>
+          <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '3px' }}></div>
           <span style={{ fontSize: '11px', color: '#475569' }}>Packed</span>
         </div>
-        {unpackedCount > 0 && showUnpackedArea && (
+        {showUnpackedArea && unpackedCount > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }}></div>
+            <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '3px' }}></div>
             <span style={{ fontSize: '11px', color: '#475569' }}>Unpacked</span>
           </div>
         )}
       </div>
+  
+      {/* Report Generator - Camera Button at Bottom Right */}
+      {packingResult && (
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 1000,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          pointerEvents: 'auto',
+          maxWidth: 'min(300px, 90vw)',
+          transition: 'all 0.2s ease',
+          
+          '@media (max-width: 768px)': {
+            bottom: '16px',
+            right: '16px',
+          },
+          
+          '@media (max-width: 480px)': {
+            bottom: '12px',
+            right: '12px',
+          },
+        }}>
+          <PackingReportGenerator 
+            packingResult={packingResult}
+            containerRef={containerRef}
+            canvasRef={canvasRef}
+            showCamera={true}
+            cameraPosition="bottom-right"
+          />
+        </div>
+      )}
     </div>
   );
-};
+});
 
 export default BinVisualizer;

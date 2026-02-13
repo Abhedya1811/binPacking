@@ -1,12 +1,27 @@
-// BinVisualizerWrapper.jsx
-import React, { memo, useEffect, useState } from 'react';
+import React, { forwardRef, memo, useEffect, useState, useRef, useImperativeHandle } from 'react';
 import BinVisualizer from './BinVisualizer';
 
-const BinVisualizerWrapper = ({ 
+const BinVisualizerWrapper = forwardRef(({ 
   packingResult, 
   isLoading, 
   originalItems = [] 
-}) => {
+}, ref) => {
+  // Create a ref for the BinVisualizer instance
+  const visualizerRef = useRef(null);
+  
+  // Expose methods to parent component
+  useImperativeHandle(ref, () => ({
+    // Return the actual canvas element from BinVisualizer
+    getCanvas: () => {
+      // If BinVisualizer has a method to get canvas, call it
+      if (visualizerRef.current && visualizerRef.current.getCanvas) {
+        return visualizerRef.current.getCanvas();
+      }
+      // Otherwise, try to find canvas element directly (fallback)
+      return document.querySelector('canvas');
+    }
+  }));
+
   // Create a stable reference to prevent unnecessary re-renders
   const [stablePackingResult, setStablePackingResult] = useState(null);
   const [stableOriginalItems, setStableOriginalItems] = useState([]);
@@ -72,13 +87,14 @@ const BinVisualizerWrapper = ({
 
   return (
     <BinVisualizer
+      ref={visualizerRef}
       key={`bin-visualizer-${renderKey}`}
       packingResult={stablePackingResult}
       isLoading={isLoading}
       originalItems={stableOriginalItems}
     />
   );
-};
+});
 
 // Custom comparison function to prevent unnecessary re-renders
 const areEqual = (prevProps, nextProps) => {

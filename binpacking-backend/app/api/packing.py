@@ -34,37 +34,37 @@ async def calculate_packing(request: PackingRequest):
         )
 
 
-@router.post("/validate")
-async def validate_packing(request: PackingRequest):
-    """
-    Validate packing request without calculating
+# @router.post("/validate")
+# async def validate_packing(request: PackingRequest):
+#     """
+#     Validate packing request without calculating
     
-    Args:
-        request: PackingRequest to validate
+#     Args:
+#         request: PackingRequest to validate
         
-    Returns:
-        Validation results
-    """
-    try:
-        validation = packing_service._validate_request(request)
+#     Returns:
+#         Validation results
+#     """
+#     try:
+#         validation = packing_service._validate_request(request)
         
-        return {
-            "valid": validation["valid"],
-            "errors": validation["errors"],
-            "warnings": validation["warnings"],
-            "volume_analysis": {
-                "total_item_volume": validation["total_volume"],
-                "container_volume": validation["container_volume"],
-                "volume_ratio": round(validation["total_volume"] / validation["container_volume"], 2) 
-                if validation["container_volume"] > 0 else 0
-            }
-        }
+#         return {
+#             "valid": validation["valid"],
+#             "errors": validation["errors"],
+#             "warnings": validation["warnings"],
+#             "volume_analysis": {
+#                 "total_item_volume": validation["total_volume"],
+#                 "container_volume": validation["container_volume"],
+#                 "volume_ratio": round(validation["total_volume"] / validation["container_volume"], 2) 
+#                 if validation["container_volume"] > 0 else 0
+#             }
+#         }
         
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Validation error: {str(e)}"
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail=f"Validation error: {str(e)}"
+#         )
 
 
 # @router.post("/quick-test", response_model=PackingResult)

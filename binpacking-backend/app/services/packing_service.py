@@ -135,10 +135,19 @@ class BoundaryValidator:
                 print(f"⚠️ Negative dimensions detected")
                 return False
             
-            # Check boundaries with tolerance
+            # IMPORTANT FIX: Check boundaries with proper floating point comparison
+            # Allow small tolerance for floating point errors
             within_x = (x >= -tolerance) and ((x + w) <= (cw + tolerance))
             within_y = (y >= -tolerance) and ((y + h) <= (ch + tolerance))
             within_z = (z >= -tolerance) and ((z + d) <= (cd + tolerance))
+            
+            # Debug output for boundary violations
+            if not within_x:
+                print(f"❌ X boundary violation: x={x}, w={w}, x+w={x+w}, cw={cw}")
+            if not within_y:
+                print(f"❌ Y boundary violation: y={y}, h={h}, y+h={y+h}, ch={ch}")
+            if not within_z:
+                print(f"❌ Z boundary violation: z={z}, d={d}, z+d={z+d}, cd={cd}")
             
             return within_x and within_y and within_z
             
@@ -172,10 +181,17 @@ class BoundaryValidator:
             safe_y = SafeConverter.to_float(item_pos[1])
             safe_z = SafeConverter.to_float(item_pos[2])
             
-            # Ensure within bounds
-            safe_x = max(0.0, min(safe_x, cw - w))
-            safe_y = max(0.0, min(safe_y, ch - h))
-            safe_z = max(0.0, min(safe_z, cd - d))
+            # Ensure within bounds with small margin
+            margin = 0.001  # Small margin for floating point errors
+            
+            safe_x = max(margin, min(safe_x, cw - w - margin))
+            safe_y = max(margin, min(safe_y, ch - h - margin))
+            safe_z = max(margin, min(safe_z, cd - d - margin))
+            
+            # Ensure we don't end up with negative values
+            safe_x = max(0.0, safe_x)
+            safe_y = max(0.0, safe_y)
+            safe_z = max(0.0, safe_z)
             
             return [safe_x, safe_y, safe_z]
             
@@ -313,13 +329,13 @@ class AdvancedPackingAlgorithm:
         """Find position using different strategies"""
         grid_x_size, grid_y_size, grid_z_size = occupancy_grid.shape
         
-        # Convert dimensions to grid units
+        
         grid_w = max(1, int(w / grid_res))
         grid_h = max(1, int(h / grid_res))
         grid_d = max(1, int(d / grid_res))
         
         if strategy == 'lowest_z':
-            # Try lowest Z first (fill from bottom up)
+            
             for z in range(grid_z_size - grid_d + 1):
                 for y in range(grid_y_size - grid_h + 1):
                     for x in range(grid_x_size - grid_w + 1):
@@ -361,7 +377,26 @@ class AdvancedPackingAlgorithm:
                         return x * grid_res, y * grid_res, z * grid_res
         
         return None
+    # def _can_place_item(self, x, y, z, w, h, d, occupied_spaces, tolerance=0.001):
+    #  """Check if item can be placed without overlaps - FIXED with better precision"""
+    # # Check container boundaries first
+    #  if (x < -tolerance or x + w > self.container_width + tolerance or
+    #     y < -tolerance or y + h > self.container_height + tolerance or
+    #     z < -tolerance or z + d > self.container_depth + tolerance):
+    #     return False
     
+    # # Check for overlaps with other items
+    #  for ox, oy, oz, ow, oh, od in occupied_spaces:
+    #     # Check if boxes intersect with small tolerance
+    #     if (x + w > ox + tolerance and
+    #         ox + ow > x + tolerance and
+    #         y + h > oy + tolerance and
+    #         oy + oh > y + tolerance and
+    #         z + d > oz + tolerance and
+    #         oz + od > z + tolerance):
+    #         return False
+    
+    #  return True
     def _can_place(self, grid_x, grid_y, grid_z, grid_w, grid_h, grid_d, occupancy_grid):
         """Check if space is available in grid"""
         grid_x_end = min(grid_x + grid_w, occupancy_grid.shape[0])

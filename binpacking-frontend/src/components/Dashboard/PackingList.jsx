@@ -15,7 +15,8 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  Tooltip
 } from '@mui/material';
 import {
   CheckCircle as CheckIcon,
@@ -24,7 +25,10 @@ import {
   Download as DownloadIcon,
   Share as ShareIcon,
   Print as PrintIcon,
-  ZoomIn as ZoomIcon
+  ZoomIn as ZoomIcon,
+  PictureAsPdf as PdfIcon,
+  TableChart as ExcelIcon,
+  Web as HtmlIcon
 } from '@mui/icons-material';
 import { usePacking } from '../../hooks/usePacking';
 import './PackingList.css';
@@ -79,7 +83,7 @@ const PackingList = ({ packingResult, onViewItem, onExport }) => {
         </Box>
         
         <Box className="header-actions">
-          <FormControl size="small" sx={{ minWidth: 120 }}>
+          <FormControl size="small" sx={{ minWidth: 120, mr: 1 }}>
             <InputLabel>View</InputLabel>
             <Select
               value={viewMode}
@@ -91,16 +95,6 @@ const PackingList = ({ packingResult, onViewItem, onExport }) => {
               <MenuItem value="steps">Step by Step</MenuItem>
             </Select>
           </FormControl>
-          
-          <IconButton size="small" onClick={() => handleExport('pdf')} title="Export PDF">
-            <DownloadIcon />
-          </IconButton>
-          <IconButton size="small" onClick={() => handleExport('csv')} title="Export CSV">
-            <ShareIcon />
-          </IconButton>
-          <IconButton size="small" onClick={() => window.print()} title="Print">
-            <PrintIcon />
-          </IconButton>
         </Box>
       </Box>
 
@@ -205,41 +199,103 @@ const PackingList = ({ packingResult, onViewItem, onExport }) => {
         </List>
       )}
 
-      {/* Export Options */}
+      {/* Export Options - Enhanced */}
       <Box className="export-section">
-        <Typography variant="subtitle2" gutterBottom>Export Packing Plan:</Typography>
+        <Typography variant="subtitle2" gutterBottom sx={{ mb: 1.5 }}>
+          Export Packing Plan:
+        </Typography>
         <Grid container spacing={1}>
           <Grid item>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<DownloadIcon />}
-              onClick={() => handleExport('pdf')}
-            >
-              PDF Report
-            </Button>
+            <Tooltip title="Download PDF Report with 3D Views">
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<PdfIcon />}
+                onClick={() => handleExport('pdf')}
+                sx={{
+                  background: '#3b82f6',
+                  '&:hover': { background: '#2563eb' }
+                }}
+              >
+                PDF Report
+              </Button>
+            </Tooltip>
           </Grid>
           <Grid item>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<DownloadIcon />}
-              onClick={() => handleExport('csv')}
-            >
-              CSV Data
-            </Button>
+            <Tooltip title="Download Excel Data with Item Positions">
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<ExcelIcon />}
+                onClick={() => handleExport('excel')}
+                sx={{
+                  background: '#10b981',
+                  '&:hover': { background: '#059669' }
+                }}
+              >
+                Excel Data
+              </Button>
+            </Tooltip>
           </Grid>
           <Grid item>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<DownloadIcon />}
-              onClick={() => handleExport('json')}
-            >
-              JSON
-            </Button>
+            <Tooltip title="Open HTML Report in Browser">
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<HtmlIcon />}
+                onClick={() => handleExport('html')}
+                sx={{
+                  background: '#8b5cf6',
+                  '&:hover': { background: '#7c3aed' }
+                }}
+              >
+                HTML Report
+              </Button>
+            </Tooltip>
+          </Grid>
+          <Grid item>
+            <Tooltip title="Export as JSON">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => handleExport('json')}
+              >
+                JSON
+              </Button>
+            </Tooltip>
+          </Grid>
+          <Grid item>
+            <Tooltip title="Print Packing List">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<PrintIcon />}
+                onClick={() => window.print()}
+              >
+                Print
+              </Button>
+            </Tooltip>
           </Grid>
         </Grid>
+        
+        {/* Export Info Banner */}
+        <Box
+          sx={{
+            mt: 2,
+            p: 1.5,
+            background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
+            borderRadius: 1,
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            fontSize: '0.85rem'
+          }}
+        >
+          <DownloadIcon fontSize="small" />
+          <span>Export reports in multiple formats: PDF with 3D views, Excel with item data, and HTML report</span>
+        </Box>
       </Box>
     </Paper>
   );
