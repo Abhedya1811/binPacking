@@ -77,7 +77,7 @@ const Dashboard = () => {
   
   const [items, setItems] = useState([]);
   const [packingOptions, setPackingOptions] = useState({
-    algorithm: 'maximal-rectangles',
+    algorithm: 'maximal',
     rotation: 'all',
     sorting: 'volume-desc',
     allowOverhang: false,
@@ -377,10 +377,10 @@ const Dashboard = () => {
               <Box className="logo-container">
                 <ThreeDIcon className="logo-icon" />
                 <Typography variant="h6" className="logo-text">
-                  3D Packing Optimizer
+                 Ashwell 3D Packing Optimizer
                 </Typography>
                 <Chip 
-                  label="PRO"
+                  label="BETA"
                   size="small"
                   className="pro-badge"
                 />

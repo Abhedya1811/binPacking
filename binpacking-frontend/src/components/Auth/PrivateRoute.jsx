@@ -1,10 +1,13 @@
+// components/Auth/PrivateRoute.js
 import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Box, CircularProgress } from '@mui/material';
 
 const PrivateRoute = () => {
-  const { user, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
+
+  console.log('PrivateRoute - loading:', loading, 'isAuthenticated:', isAuthenticated);
 
   if (loading) {
     return (
@@ -21,7 +24,7 @@ const PrivateRoute = () => {
     );
   }
 
-  return user ? <Outlet /> : <Navigate to="/login" />;
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
 export default PrivateRoute;

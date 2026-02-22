@@ -85,17 +85,32 @@ async def calculate_packing(request: PackingRequest):
 async def get_algorithms():
     """
     Get available packing algorithms
+    Dynamic size-based prioritization strategies
     """
     return {
         "algorithms": [
-            {"id": "maxrects", "name": "Maximal Rectangles", "description": "Default algorithm for optimal packing"},
-            {"id": "firstfit", "name": "First Fit", "description": "Simple algorithm for quick packing"},
-            {"id": "bestfit", "name": "Best Fit", "description": "Algorithm for best space utilization"},
-            {"id": "guillotine", "name": "Guillotine", "description": "Algorithm for rectangular cuts"}
+            {
+                "id": "maximal",
+                "name": "Maximal (Large First)",
+                "description": "Prioritizes large items first for optimal large-item packing",
+                "priority": "Large → Medium → Small"
+            },
+            {
+                "id": "medium", 
+                "name": "Medium First",
+                "description": "Prioritizes medium-sized items first for balanced packing",
+                "priority": "Medium → Large → Small"
+            },
+            {
+                "id": "small",
+                "name": "Small First",
+                "description": "Prioritizes small items first for filling gaps and detailed packing",
+                "priority": "Small → Medium → Large"
+            }
         ],
-        "default_algorithm": "maxrects"
+        "default_algorithm": "maximal",
+        "description": "Select based on your item sizes - large items first, medium first, or small first"
     }
-
 
 # @router.get("/health")
 # async def health_check():

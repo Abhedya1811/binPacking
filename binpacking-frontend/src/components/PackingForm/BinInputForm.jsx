@@ -153,14 +153,13 @@ const BinInputForm = ({ containerSize, onContainerChange, onContainerTypeChange 
             <FormControl fullWidth size="small">
               <InputLabel>Packing Algorithm</InputLabel>
               <Select
-                defaultValue="maximal-rectangles"
+                defaultValue="maximal"
                 label="Packing Algorithm"
                 onChange={(e) => onContainerTypeChange('algorithm', e.target.value)}
               >
-                <MenuItem value="maximal-rectangles">Maximal Rectangles (3D)</MenuItem>
-                <MenuItem value="guillotine">Guillotine Cut (2D)</MenuItem>
-                <MenuItem value="skyline">Skyline Algorithm</MenuItem>
-                <MenuItem value="genetic">Genetic Algorithm</MenuItem>
+                <MenuItem value="maximal">Maximal</MenuItem>
+                <MenuItem value="medium">Medium</MenuItem>
+                <MenuItem value="small">Small</MenuItem>               
               </Select>
             </FormControl>
           </Grid>

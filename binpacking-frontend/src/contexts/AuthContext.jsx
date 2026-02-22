@@ -1,16 +1,24 @@
+// contexts/AuthContext.js
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext();
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // ADD THIS
 
-  // Setup axios defaults - USE LOCALHOST NOT 0.0.0.0
+  // Setup axios defaults
   useEffect(() => {
     axios.defaults.baseURL = 'http://localhost:8000';
     axios.defaults.headers.common['Content-Type'] = 'application/json';
@@ -51,6 +59,7 @@ export const AuthProvider = ({ children }) => {
       
       if (!token) {
         setLoading(false);
+        setIsAuthenticated(false); // ADD THIS
         return;
       }
 
@@ -60,24 +69,28 @@ export const AuthProvider = ({ children }) => {
         if (response.data.valid) {
           // Decode token for user info
           const payload = JSON.parse(atob(token.split('.')[1]));
-          setUser({
+          const userData = {
             id: payload.id || 'admin_001',
             username: payload.sub || 'admin',
             email: payload.email || 'admin@binpacking.com',
             full_name: 'System Administrator',
             role: payload.role || 'super_admin',
             is_superuser: true
-          });
+          };
+          setUser(userData);
+          setIsAuthenticated(true); // ADD THIS
         } else {
           localStorage.removeItem('access_token');
           localStorage.removeItem('token_type');
           localStorage.removeItem('expires_in');
+          setIsAuthenticated(false); // ADD THIS
         }
       } catch (err) {
         console.error('Token verification failed:', err);
         localStorage.removeItem('access_token');
         localStorage.removeItem('token_type');
         localStorage.removeItem('expires_in');
+        setIsAuthenticated(false); // ADD THIS
       } finally {
         setLoading(false);
       }
@@ -111,6 +124,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('expires_in', expires_in);
       
       setUser(user);
+      setIsAuthenticated(true); // ADD THIS
       setError(null);
       return { success: true };
     } catch (err) {
@@ -127,6 +141,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       setError(message);
+      setIsAuthenticated(false); // ADD THIS
       return { success: false, error: message };
     }
   };
@@ -141,6 +156,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('token_type');
       localStorage.removeItem('expires_in');
       setUser(null);
+      setIsAuthenticated(false); // ADD THIS
     }
   };
 
@@ -169,7 +185,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     changePassword,
-    isAuthenticated: !!user,
+    isAuthenticated, // ADD THIS
     isAdmin: user?.role === 'super_admin' || user?.is_superuser === true
   };
 

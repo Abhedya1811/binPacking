@@ -334,7 +334,7 @@ class PackingRequest(BaseModel):
     def validate_algorithm(cls, v: str) -> str:
         """Validate and normalize algorithm name"""
         valid_algorithms = [
-            "maximal-rectangles", "maxrects", "guillotine", 
+            "maximal", "medium", "small", 
             "skyline", "genetic", "firstfit", "bestfit",
             "arbitrary-rotation"  # New algorithm for arbitrary rotations
         ]

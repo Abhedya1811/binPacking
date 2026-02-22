@@ -1,3 +1,4 @@
+// components/Auth/LoginPage.js
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -17,7 +18,6 @@ import {
   PersonOutlined,
   Visibility,
   VisibilityOff,
-  Login as LoginIcon,
   Warehouse as WarehouseIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -25,7 +25,7 @@ import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login, loading, error: authError, isAuthenticated } = useAuth();
+  const { login, loading: authLoading, error: authError, isAuthenticated } = useAuth();
   
   const [formData, setFormData] = useState({
     username: '',
@@ -35,9 +35,11 @@ const LoginPage = () => {
   const [formErrors, setFormErrors] = useState({});
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // Redirect if already authenticated
   useEffect(() => {
+    console.log('LoginPage - isAuthenticated:', isAuthenticated);
     if (isAuthenticated) {
       navigate('/dashboard', { replace: true });
     }
@@ -48,6 +50,7 @@ const LoginPage = () => {
     if (authError) {
       setErrorMessage(authError);
       setShowError(true);
+      setSubmitting(false);
     }
   }, [authError]);
 
@@ -68,15 +71,53 @@ const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
+    
     setErrorMessage('');
     setShowError(false);
-    await login(formData.username.trim(), formData.password);
+    setSubmitting(true);
+    
+    try {
+      const result = await login(formData.username.trim(), formData.password);
+      if (!result.success) {
+        setErrorMessage(result.error);
+        setShowError(true);
+      }
+      // Navigation will happen via the useEffect when isAuthenticated becomes true
+    } catch (err) {
+      setErrorMessage('An unexpected error occurred');
+      setShowError(true);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCloseError = () => {
     setShowError(false);
     setErrorMessage('');
   };
+
+  const isLoading = authLoading || submitting;
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // Don't render login form if already authenticated
+  if (isAuthenticated) {
+    return null;
+  }
 
   return (
     <Box
@@ -183,6 +224,7 @@ const LoginPage = () => {
               onChange={handleChange}
               error={!!formErrors.username}
               helperText={formErrors.username}
+              disabled={isLoading}
               sx={{ 
                 mb: 2.5,
                 '& .MuiOutlinedInput-root': {
@@ -212,8 +254,6 @@ const LoginPage = () => {
                   </InputAdornment>
                 )
               }}
-              variant="outlined"
-              size="medium"
             />
             
             <TextField
@@ -225,6 +265,7 @@ const LoginPage = () => {
               onChange={handleChange}
               error={!!formErrors.password}
               helperText={formErrors.password}
+              disabled={isLoading}
               sx={{ 
                 mb: 3,
                 '& .MuiOutlinedInput-root': {
@@ -259,6 +300,7 @@ const LoginPage = () => {
                       onClick={() => setShowPassword(!showPassword)}
                       edge="end"
                       sx={{ color: '#8f9ba8' }}
+                      disabled={isLoading}
                     >
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
@@ -271,9 +313,9 @@ const LoginPage = () => {
               type="submit"
               fullWidth
               variant="contained"
-              disabled={loading}
+              disabled={isLoading}
               size="large"
-              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
+              startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : null}
               sx={{
                 py: 1.5,
                 backgroundColor: '#1a3e60',
@@ -292,16 +334,11 @@ const LoginPage = () => {
                 }
               }}
             >
-              {loading ? 'Signing in...' : 'Sign in to Dashboard'}
+              {isLoading ? 'Signing in...' : 'Sign in to Dashboard'}
             </Button>
           </form>
 
-          <Divider sx={{ 
-            my: 4,
-            color: '#e0e6ec'
-          }} />
-          
-      
+          <Divider sx={{ my: 4 }} />
 
           {/* Footer */}
           <Typography 

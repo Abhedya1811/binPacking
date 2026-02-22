@@ -60,7 +60,7 @@ const PackingControls = ({
       };
 
   const defaultOptions = {
-    algorithm: 'maximal-rectangles',
+    algorithm: 'maximal',
     rotation: 'all',
     sorting: 'volume-desc',
     allowOverhang: false,
@@ -160,24 +160,16 @@ const PackingControls = ({
                     label="Algorithm"
                     onChange={(e) => handleOptionChange('algorithm', e.target.value)}
                   >
-                    <MenuItem value="maximal-rectangles">
-                      Maximal Rectangles (3D)
+                    <MenuItem value="maximal">
+                      Maximal 
                     </MenuItem>
-                    <MenuItem value="guillotine">
-                      Guillotine Cut (2D/3D)
+                    <MenuItem value="medium">
+                      Medium
                     </MenuItem>
-                    <MenuItem value="skyline">
-                      Skyline Algorithm
+                    <MenuItem value="small">
+                      Small
                     </MenuItem>
-                    <MenuItem value="genetic">
-                      Genetic Algorithm
-                    </MenuItem>
-                    <MenuItem value="first-fit">
-                      First Fit Decreasing
-                    </MenuItem>
-                    <MenuItem value="best-fit">
-                      Best Fit Decreasing
-                    </MenuItem>
+                    
                   </Select>
                 </FormControl>
               </Grid>
@@ -316,7 +308,7 @@ const PackingControls = ({
                     />
                     <Chip
                       label="Optimize for Space"
-                      onClick={() => handleOptionChange('algorithm', 'maximal-rectangles')}
+                      onClick={() => handleOptionChange('algorithm', 'maximal')}
                       variant="outlined"
                       size="small"
                     />
