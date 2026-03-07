@@ -412,24 +412,11 @@ const Dashboard = () => {
             {/* Right - Admin Actions */}
             <Box className="header-right">
               <Tooltip title="Refresh">
-                <IconButton size="small">
-                  <RefreshIcon />
+                <IconButton onClick={() => navigate(0)} size="small">
+                  <RefreshIcon  />
                 </IconButton>
               </Tooltip>
-              
-              <Tooltip title="Notifications">
-                <IconButton size="small">
-                  <Badge badgeContent={3} color="error">
-                    <NotificationsIcon />
-                  </Badge>
-                </IconButton>
-              </Tooltip>
-              
-              <Tooltip title="Settings">
-                <IconButton size="small">
-                  <SettingsIcon />
-                </IconButton>
-              </Tooltip>
+   
               
               <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
               
@@ -581,8 +568,8 @@ const Dashboard = () => {
               <Box
                 sx={{
                   position: 'absolute',
-                  right: -12,
-                  top: 24,
+                  right: 2,
+                  top: 20,
                   zIndex: 100,
                   bgcolor: 'background.paper',
                   border: '1px solid',
@@ -615,7 +602,7 @@ const Dashboard = () => {
                 /* Expanded View */
                 <>
                   {/* Config Panel Header */}
-                  <Box className="config-header">
+                  <Box className="config-header"sx={{mr: 2}}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <SettingsApplicationsIcon sx={{ color: 'primary.main', fontSize: 20 }} />
                       <Typography variant="subtitle1" fontWeight="600">
