@@ -79,7 +79,7 @@ const Container = ({ width, height, depth }) => {
   );
 };
 
-// ==================== PACKED ITEM COMPONENT - ORIGINAL COLORS ====================
+// ==================== PACKED ITEM COMPONENT - FIXED HOVER ====================
 const PackedItem = ({ item, index, containerDims, onHover }) => {
   const meshRef = useRef();
   const [hovered, setHovered] = useState(false);
@@ -106,18 +106,19 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
   const name = item.original_name || item.name || item.id || `Item ${index}`;
   
   // FIX: The dimensions already represent the rotated state
-  // So we don't need to apply rotation again
   const rotation = [0, 0, 0]; // No additional rotation needed
   
   return (
     <group>
-      {/* Main item mesh - ORIGINAL COLORS, NO opacity, NO emissive */}
+      {/* Main item mesh - FIXED HOVER */}
       <mesh
         ref={meshRef}
         position={[centerX, centerY, centerZ]}
         rotation={rotation}
-        userData={{ isPackedItem: true, name }}
-        onPointerOver={() => {
+        userData={{ isPackedItem: true, name, index }}
+        onPointerOver={(e) => {
+          // Stop propagation to prevent parent elements from receiving the event
+          e.stopPropagation();
           setHovered(true);
           onHover({
             name,
@@ -129,9 +130,14 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
             rotation: { x: rotX, y: rotY, z: rotZ }
           });
         }}
-        onPointerOut={() => {
+        onPointerOut={(e) => {
+          e.stopPropagation();
           setHovered(false);
           onHover(null);
+        }}
+        onPointerMove={(e) => {
+          // Stop propagation to prevent multiple items from being detected
+          e.stopPropagation();
         }}
       >
         <boxGeometry args={[width, height, depth]} />
@@ -152,13 +158,13 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
         <lineBasicMaterial color={!isWithinBounds ? "#ff0000" : "#000000"} />
       </lineSegments>
       
-      {/* Hover highlight */}
+      {/* Hover highlight - only show for this specific item */}
       {hovered && (
         <lineSegments
           position={[centerX, centerY, centerZ]}
           rotation={rotation}
         >
-          <edgesGeometry args={[new THREE.BoxGeometry(width + 0.1, height + 0.1, depth + 0.1)]} />
+          <edgesGeometry args={[new THREE.BoxGeometry(width + 0.05, height + 0.05, depth + 0.05)]} />
           <lineBasicMaterial color="#ffffff" linewidth={2} />
         </lineSegments>
       )}
@@ -166,7 +172,7 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
   );
 };
 
-// ==================== UNPACKED ITEM COMPONENT ====================
+// ==================== UNPACKED ITEM COMPONENT - FIXED HOVER ====================
 const UnpackedItem = ({ item, index, containerDims, onHover }) => {
   const meshRef = useRef();
   const [hovered, setHovered] = useState(false);
@@ -198,8 +204,9 @@ const UnpackedItem = ({ item, index, containerDims, onHover }) => {
     <mesh
       ref={meshRef}
       position={[centerX, centerY, centerZ]}
-      userData={{ isUnpackedItem: true, name }}
-      onPointerOver={() => {
+      userData={{ isUnpackedItem: true, name, index }}
+      onPointerOver={(e) => {
+        e.stopPropagation();
         setHovered(true);
         onHover({
           name,
@@ -211,9 +218,13 @@ const UnpackedItem = ({ item, index, containerDims, onHover }) => {
           reason
         });
       }}
-      onPointerOut={() => {
+      onPointerOut={(e) => {
+        e.stopPropagation();
         setHovered(false);
         onHover(null);
+      }}
+      onPointerMove={(e) => {
+        e.stopPropagation();
       }}
     >
       <boxGeometry args={[width, height, depth]} />
@@ -303,6 +314,100 @@ const UnpackedArea = ({ containerDims, show }) => {
       />
     </group>
   );
+};
+
+// ==================== KEYBOARD CONTROLS COMPONENT ====================
+const KeyboardControls = ({ controlsRef }) => {
+  const { camera } = useThree();
+  const keys = useRef({
+    ArrowUp: false,
+    ArrowDown: false,
+    ArrowLeft: false,
+    ArrowRight: false,
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    q: false,
+    e: false
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key in keys.current) {
+        keys.current[e.key] = true;
+        e.preventDefault(); // Prevent page scrolling
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.key in keys.current) {
+        keys.current[e.key] = false;
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useFrame(() => {
+    if (!controlsRef.current) return;
+
+    const moveSpeed = 0.5;
+    const controls = controlsRef.current;
+    const camera = controls.object;
+    
+    // Get camera's forward and right vectors
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    forward.y = 0; // Keep movement horizontal
+    forward.normalize();
+    
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    right.y = 0;
+    right.normalize();
+    
+    const up = new THREE.Vector3(0, 1, 0);
+    
+    // Calculate movement
+    const moveDelta = new THREE.Vector3(0, 0, 0);
+    
+    // Arrow keys and WASD
+    if (keys.current.ArrowUp || keys.current.w) {
+      moveDelta.add(forward.clone().multiplyScalar(moveSpeed));
+    }
+    if (keys.current.ArrowDown || keys.current.s) {
+      moveDelta.sub(forward.clone().multiplyScalar(moveSpeed));
+    }
+    if (keys.current.ArrowLeft || keys.current.a) {
+      moveDelta.sub(right.clone().multiplyScalar(moveSpeed));
+    }
+    if (keys.current.ArrowRight || keys.current.d) {
+      moveDelta.add(right.clone().multiplyScalar(moveSpeed));
+    }
+    // Vertical movement
+    if (keys.current.q) {
+      moveDelta.y -= moveSpeed;
+    }
+    if (keys.current.e) {
+      moveDelta.y += moveSpeed;
+    }
+    
+    if (moveDelta.length() > 0) {
+      // Move camera
+      camera.position.add(moveDelta);
+      // Update controls target to maintain focus
+      controls.target.add(moveDelta);
+      controls.update();
+    }
+  });
+
+  return null;
 };
 
 // ==================== CAMERA CONTROLLER ====================
@@ -739,7 +844,7 @@ const ViewControls = ({ viewMode, setViewMode, showUnpackedArea, setShowUnpacked
         backdropFilter: 'blur(8px)'
       }}>
         <span>🖱️</span>
-        <span>Left click to rotate • Scroll to zoom • Right drag to pan</span>
+        <span>Mouse: rotate/zoom • Arrow Keys: move camera • Q/E: up/down</span>
       </div>
 
       {/* Toggle unpacked button */}
@@ -994,6 +1099,9 @@ const BinVisualizer = forwardRef(({ packingResult, isLoading, originalItems = []
           enableZoom={true}
           enableRotate={true}
         />
+        
+        {/* Keyboard Controls for Arrow Key Movement */}
+        <KeyboardControls controlsRef={controlsRef} />
       </Canvas>
 
       {/* Report Generator - Camera Button at Bottom Right */}

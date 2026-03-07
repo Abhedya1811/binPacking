@@ -1,12 +1,9 @@
 """
 ULTIMATE 3D BIN PACKING - PY3DBP + OR-TOOLS + MES
-- FIXED: All type errors resolved
-- FIXED: OR-Tools thresholds for proper categorization
-- FIXED: MES space splitting to eliminate gaps
-- FIXED: Space merging to create larger contiguous spaces
-- OPTIMIZED: Left-to-right packing with width matching
-- OPTIMIZED: Descending sort for all categories
-- OPTIMIZED: Z-axis gap filling
+- FIXED: MES space splitting coordinates
+- FIXED: Gravity validation in all phases
+- FIXED: Removed hardcoded bypass for flat items
+- OPTIMIZED: Proper Z-axis gap filling with physics
 """
 
 from dataclasses import dataclass, field
@@ -385,12 +382,14 @@ class ORToolsOptimizer:
 
 # ====================================================================
 # MAXIMAL EMPTY SPACES FINDER - ENHANCED FOR Z-AXIS GAP FILLING
+# FIXED: Coordinate typos in space splitting
 # ====================================================================
 
 class MaximalEmptySpacesFinder:
     """
     Implements Maximal Empty Spaces (MES) algorithm for optimal packing
     ENHANCED: Z-axis gap filling and better space utilization
+    FIXED: Proper space splitting coordinates
     """
     
     def __init__(self):
@@ -504,9 +503,8 @@ class MaximalEmptySpacesFinder:
                                         best_space_idx = idx
             
             if best_pos is not None and best_dims is not None and best_rot is not None:
-                used_space = self.spaces.pop(best_space_idx)
-                self._split_space(used_space, best_pos, best_dims)
-                self._merge_spaces()
+                # Update ALL spaces that intersect with the new item
+                self._update_all_spaces(best_pos, best_dims)
                 return best_pos, best_dims, best_rot
             
             return None, None, None
@@ -515,195 +513,151 @@ class MaximalEmptySpacesFinder:
             print(f"⚠️ MES position finding failed: {e}")
             return None, None, None
     
-    def _split_space(self, space: Space3D, pos: List[float], dims: List[float]):
+    def _update_all_spaces(self, pos: List[float], dims: List[float]):
         """
-        Split space after placing an item - creates maximal empty spaces
-        Enhanced for better Z-axis space management
+        True MES implementation: Splits ALL existing spaces that intersect 
+        with the newly placed item.
+        FIXED: Use space.y and space.z for left/right spaces to prevent floating gaps
         """
         x, y, z = pos
         w, h, d = dims
+        new_spaces = []
         
-        # Right space
-        if space.x + space.width > x + w + 0.001:
-            self.spaces.append(Space3D(
-                x + w, y, z,
-                space.x + space.width - (x + w),
-                space.height,
-                space.depth
-            ))
+        for space in self.spaces:
+            # Check if the item intersects this empty space
+            # No intersection if they're separated in any axis
+            if (x >= space.x + space.width or x + w <= space.x or
+                y >= space.y + space.height or y + h <= space.y or
+                z >= space.z + space.depth or z + d <= space.z):
+                # No intersection, keep the space as is
+                new_spaces.append(space)
+                continue
+            
+            # The item intersects this space - split it into up to 6 new spaces
+            
+            # 1. Space to the Right (X+ direction)
+            if x + w < space.x + space.width:
+                new_spaces.append(Space3D(
+                    x + w, space.y, space.z,  # FIXED: Use space.y, space.z
+                    space.x + space.width - (x + w),
+                    space.height,
+                    space.depth
+                ))
+            
+            # 2. Space to the Left (X- direction)
+            if x > space.x:
+                new_spaces.append(Space3D(
+                    space.x, space.y, space.z, # FIXED: Use space.y, space.z
+                    x - space.x,
+                    space.height,
+                    space.depth
+                ))
+            
+            # 3. Space Above (Y+ direction)
+            if y + h < space.y + space.height:
+                new_spaces.append(Space3D(
+                    space.x, y + h, space.z,
+                    space.width,
+                    space.y + space.height - (y + h),
+                    space.depth
+                ))
+            
+            # 4. Space Below (Y- direction)
+            if y > space.y:
+                new_spaces.append(Space3D(
+                    space.x, space.y, space.z,
+                    space.width,
+                    y - space.y,
+                    space.depth
+                ))
+            
+            # 5. Space in Front (Z+ direction)
+            if z + d < space.z + space.depth:
+                new_spaces.append(Space3D(
+                    space.x, space.y, z + d,
+                    space.width,
+                    space.height,
+                    space.z + space.depth - (z + d)
+                ))
+            
+            # 6. Space Behind (Z- direction)
+            if z > space.z:
+                new_spaces.append(Space3D(
+                    space.x, space.y, space.z,
+                    space.width,
+                    space.height,
+                    z - space.z
+                ))
         
-        # Left space (if not at wall)
-        if x > space.x + 0.001:
-            self.spaces.append(Space3D(
-                space.x, y, z,
-                x - space.x,
-                space.height,
-                space.depth
-            ))
-        
-        # Top space
-        if space.y + space.height > y + h + 0.001:
-            self.spaces.append(Space3D(
-                space.x, y + h, space.z,
-                space.width,
-                space.y + space.height - (y + h),
-                space.depth
-            ))
-        
-        # Bottom space (if not on floor)
-        if y > space.y + 0.001:
-            self.spaces.append(Space3D(
-                space.x, space.y, space.z,
-                space.width,
-                y - space.y,
-                space.depth
-            ))
-        
-        # Front space (along Z-axis)
-        if space.z + space.depth > z + d + 0.001:
-            self.spaces.append(Space3D(
-                space.x, space.y, z + d,
-                space.width,
-                space.height,
-                space.z + space.depth - (z + d)
-            ))
-        
-        # Back space (along Z-axis)
-        if z > space.z + 0.001:
-            self.spaces.append(Space3D(
-                space.x, space.y, space.z,
-                space.width,
-                space.height,
-                z - space.z
-            ))
-        
-        # Also create combined spaces for better Z-axis gap filling
-        # Top-Right space
-        if space.x + space.width > x + w + 0.001 and space.y + space.height > y + h + 0.001:
-            self.spaces.append(Space3D(
-                x + w, y + h, space.z,
-                space.x + space.width - (x + w),
-                space.y + space.height - (y + h),
-                space.depth
-            ))
-        
-        # Remove zero-volume spaces
-        self.spaces = [s for s in self.spaces if s.volume > 0.001]
+        # Remove zero-volume spaces and filter out subsumed spaces
+        new_spaces = [s for s in new_spaces if s.volume > 0.001]
+        self.spaces = self._filter_subsumed_spaces(new_spaces)
     
-    def _merge_spaces(self):
-        """Merge adjacent spaces to reduce fragmentation"""
-        if len(self.spaces) < 2:
-            return
+    def _filter_subsumed_spaces(self, spaces: List[Space3D]) -> List[Space3D]:
+        """
+        Removes spaces that are 100% contained within another larger space.
+        This keeps the space list minimal and prevents fragmentation.
+        """
+        if len(spaces) <= 1:
+            return spaces
         
-        merged = True
-        while merged:
-            merged = False
-            new_spaces = []
-            skip = set()
-            
-            for i, s1 in enumerate(self.spaces):
-                if i in skip:
+        # Sort by volume descending so we check largest spaces first
+        spaces.sort(key=lambda s: -s.volume)
+        filtered = []
+        
+        for i, s1 in enumerate(spaces):
+            is_subsumed = False
+            for j, s2 in enumerate(spaces):
+                if i == j:
                     continue
-                
-                merged_this = False
-                for j, s2 in enumerate(self.spaces):
-                    if j <= i or j in skip:
-                        continue
-                    
-                    # Try merging along X axis
-                    if (abs(s1.y - s2.y) < 0.001 and abs(s1.z - s2.z) < 0.001 and
-                        abs(s1.height - s2.height) < 0.001 and abs(s1.depth - s2.depth) < 0.001):
-                        
-                        if abs(s1.x2 - s2.x) < 0.001:  # s1 right of s2
-                            merged_space = Space3D(
-                                s2.x, s1.y, s1.z,
-                                s2.width + s1.width,
-                                s1.height, s1.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                        elif abs(s2.x2 - s1.x) < 0.001:  # s2 right of s1
-                            merged_space = Space3D(
-                                s1.x, s1.y, s1.z,
-                                s1.width + s2.width,
-                                s1.height, s1.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                    
-                    # Try merging along Y axis
-                    elif (abs(s1.x - s2.x) < 0.001 and abs(s1.z - s2.z) < 0.001 and
-                          abs(s1.width - s2.width) < 0.001 and abs(s1.depth - s2.depth) < 0.001):
-                        
-                        if abs(s1.y2 - s2.y) < 0.001:  # s1 above s2
-                            merged_space = Space3D(
-                                s1.x, s2.y, s1.z,
-                                s1.width,
-                                s2.height + s1.height,
-                                s1.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                        elif abs(s2.y2 - s1.y) < 0.001:  # s2 above s1
-                            merged_space = Space3D(
-                                s1.x, s1.y, s1.z,
-                                s1.width,
-                                s1.height + s2.height,
-                                s1.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                    
-                    # Try merging along Z axis
-                    elif (abs(s1.x - s2.x) < 0.001 and abs(s1.y - s2.y) < 0.001 and
-                          abs(s1.width - s2.width) < 0.001 and abs(s1.height - s2.height) < 0.001):
-                        
-                        if abs(s1.z2 - s2.z) < 0.001:  # s1 in front of s2
-                            merged_space = Space3D(
-                                s1.x, s1.y, s2.z,
-                                s1.width, s1.height,
-                                s2.depth + s1.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                        elif abs(s2.z2 - s1.z) < 0.001:  # s2 in front of s1
-                            merged_space = Space3D(
-                                s1.x, s1.y, s1.z,
-                                s1.width, s1.height,
-                                s1.depth + s2.depth
-                            )
-                            new_spaces.append(merged_space)
-                            skip.add(i); skip.add(j)
-                            merged = True; merged_this = True
-                            break
-                
-                if not merged_this:
-                    new_spaces.append(s1)
+                # Check if s1 is entirely inside s2
+                if (s1.x >= s2.x - 0.001 and s1.x + s1.width <= s2.x + s2.width + 0.001 and
+                    s1.y >= s2.y - 0.001 and s1.y + s1.height <= s2.y + s2.height + 0.001 and
+                    s1.z >= s2.z - 0.001 and s1.z + s1.depth <= s2.z + s2.depth + 0.001):
+                    is_subsumed = True
+                    break
             
-            # Add any remaining spaces
-            for i, s in enumerate(self.spaces):
-                if i not in skip and s not in new_spaces:
-                    new_spaces.append(s)
-            
-            self.spaces = new_spaces
+            if not is_subsumed:
+                filtered.append(s1)
+        
+        return filtered
+    
+    def _spaces_overlap(self, space1: Space3D, space2: Space3D) -> bool:
+        """Check if two spaces overlap"""
+        # Check X-axis overlap
+        overlap_x = not (space1.x + space1.width <= space2.x + 0.001 or 
+                         space2.x + space2.width <= space1.x + 0.001)
+        
+        # Check Y-axis overlap
+        overlap_y = not (space1.y + space1.height <= space2.y + 0.001 or 
+                         space2.y + space2.height <= space1.y + 0.001)
+        
+        # Check Z-axis overlap
+        overlap_z = not (space1.z + space1.depth <= space2.z + 0.001 or 
+                         space2.z + space2.depth <= space1.z + 0.001)
+        
+        return overlap_x and overlap_y and overlap_z
     
     def get_all_spaces(self) -> List[Space3D]:
         """Get all current empty spaces"""
         return self.spaces.copy()
+    
+    def validate_space_volume(self, container_volume: float) -> bool:
+        """
+        Validate that total space volume doesn't exceed container volume
+        Returns True if valid, False if there's an issue
+        """
+        total_volume = sum(s.volume for s in self.spaces)
+        if total_volume > container_volume * 1.01:  # Allow 1% tolerance for floating point
+            print(f"⚠️ Warning: Total space volume {total_volume:.2f}m³ exceeds container volume {container_volume:.2f}m³")
+            return False
+        return True
 
 
 # ====================================================================
 # ULTIMATE PACKING SERVICE - ENHANCED WITH PROPER SORTING AND Z-AXIS FILLING
+# FIXED: Removed hardcoded bypass in Phase 3
+# FIXED: Added support validation in Phase 4
 # ====================================================================
 
 class UltimatePackingService:
@@ -715,9 +669,13 @@ class UltimatePackingService:
         self.support_validator = SupportValidator()
         self.mes_finder = MaximalEmptySpacesFinder()
         self.optimizer = ORToolsOptimizer()
+        self.container_width = 0.0
+        self.container_height = 0.0
+        self.container_depth = 0.0
+        self.placed_items = []
         
     def calculate_packing(self, request: PackingRequest) -> PackingResult:
-        """Main packing calculation with proper sorting and Z-axis filling"""
+        """Main packing calculation with proper sorting, Z-axis filling, and strict physics"""
         start_time = time.time()
         job_id = uuid.uuid4()
         
@@ -736,18 +694,18 @@ class UltimatePackingService:
             
             print(f"📦 Total valid items: {len(items_data)}")
             
-            container_width = SafeConverter.to_float(request.bin_config.width, 10.0)
-            container_height = SafeConverter.to_float(request.bin_config.height, 8.0)
-            container_depth = SafeConverter.to_float(request.bin_config.depth, 10.0)
-            container_volume = container_width * container_height * container_depth
+            self.container_width = SafeConverter.to_float(request.bin_config.width, 10.0)
+            self.container_height = SafeConverter.to_float(request.bin_config.height, 8.0)
+            self.container_depth = SafeConverter.to_float(request.bin_config.depth, 10.0)
+            container_volume = self.container_width * self.container_height * self.container_depth
             
-            print(f"📦 Container: {container_width:.3f}x{container_height:.3f}x{container_depth:.3f}")
+            print(f"📦 Container: {self.container_width:.3f}x{self.container_height:.3f}x{self.container_depth:.3f}")
             print(f"🚪 Door gap: {self.mes_finder.door_gap}m on right side")
             
             # STEP 1: OR-Tools categorization and sorting
             print("📦 Running OR-Tools categorization...")
             priority_items, secondary_items, tertiary_items = self.optimizer.optimize_item_selection(
-                items_data, [container_width, container_height, container_depth], strategy
+                items_data, [self.container_width, self.container_height, self.container_depth], strategy
             )
             
             print(f"📦 Priority items: {len(priority_items)}")
@@ -755,7 +713,7 @@ class UltimatePackingService:
             print(f"📦 Tertiary items: {len(tertiary_items)}")
             
             # STEP 2: Initialize MES
-            self.mes_finder.reset([container_width, container_height, container_depth])
+            self.mes_finder.reset([self.container_width, self.container_height, self.container_depth])
             
             # STEP 3: Multi-phase packing
             print("📦 Running MES positioning with Z-axis gap filling...")
@@ -764,7 +722,7 @@ class UltimatePackingService:
             packed_volume = 0.0
             packed_weight = 0.0
             
-            placed_items = []
+            self.placed_items = []
             processed_ids = set()
             
             # Track failed items for next phases
@@ -781,8 +739,8 @@ class UltimatePackingService:
                 # Try to pack with standard support requirements
                 result = self.mes_finder.find_best_position(
                     [item['width'], item['height'], item['depth']],
-                    [container_width, container_height, container_depth],
-                    placed_items,
+                    [self.container_width, self.container_height, self.container_depth],
+                    self.placed_items,
                     is_small_item=False
                 )
                 
@@ -791,13 +749,13 @@ class UltimatePackingService:
                 if position is not None and dimensions is not None and rotation is not None:
                     is_valid, msg = self._validate_placement(
                         position, dimensions,
-                        [container_width, container_height, container_depth],
-                        placed_items
+                        [self.container_width, self.container_height, self.container_depth],
+                        self.placed_items
                     )
                     
                     if is_valid:
                         has_support, _ = self.support_validator.has_support(
-                            position, dimensions, placed_items, is_small_item=False
+                            position, dimensions, self.placed_items, is_small_item=False
                         )
                         
                         if has_support or abs(position[1]) < 0.001:
@@ -809,7 +767,7 @@ class UltimatePackingService:
                                 'original_item': item
                             })
                             
-                            placed_items.append({
+                            self.placed_items.append({
                                 'id': item['id'],
                                 'position': position,
                                 'dimensions': dimensions
@@ -819,6 +777,9 @@ class UltimatePackingService:
                             packed_weight += item.get('weight', 0)
                             processed_ids.add(item['id'])
                             print(f"✅ PHASE 1 packed: {item['id']} at {position}")
+                            
+                            # Validate space volumes after each placement
+                            self._validate_packing_state(container_volume)
                         else:
                             failed_priority.append(item)
                     else:
@@ -840,8 +801,8 @@ class UltimatePackingService:
                 # Try with slightly relaxed support for better packing
                 result = self.mes_finder.find_best_position(
                     [item['width'], item['height'], item['depth']],
-                    [container_width, container_height, container_depth],
-                    placed_items,
+                    [self.container_width, self.container_height, self.container_depth],
+                    self.placed_items,
                     is_small_item=True if item in tertiary_items else False
                 )
                 
@@ -850,13 +811,13 @@ class UltimatePackingService:
                 if position is not None and dimensions is not None and rotation is not None:
                     is_valid, _ = self._validate_placement(
                         position, dimensions,
-                        [container_width, container_height, container_depth],
-                        placed_items
+                        [self.container_width, self.container_height, self.container_depth],
+                        self.placed_items
                     )
                     
                     if is_valid:
                         has_support, _ = self.support_validator.has_support(
-                            position, dimensions, placed_items, 
+                            position, dimensions, self.placed_items, 
                             is_small_item=True if item in tertiary_items else False
                         )
                         
@@ -869,7 +830,7 @@ class UltimatePackingService:
                                 'original_item': item
                             })
                             
-                            placed_items.append({
+                            self.placed_items.append({
                                 'id': item['id'],
                                 'position': position,
                                 'dimensions': dimensions
@@ -879,6 +840,9 @@ class UltimatePackingService:
                             packed_weight += item.get('weight', 0)
                             processed_ids.add(item['id'])
                             print(f"✅ PHASE 2 packed: {item['id']} at {position}")
+                            
+                            # Validate space volumes after each placement
+                            self._validate_packing_state(container_volume)
                         else:
                             failed_secondary.append(item)
                     else:
@@ -912,8 +876,8 @@ class UltimatePackingService:
                     # Try with relaxed support for small items
                     result = self.mes_finder.find_best_position(
                         [item['width'], item['height'], item['depth']],
-                        [container_width, container_height, container_depth],
-                        placed_items,
+                        [self.container_width, self.container_height, self.container_depth],
+                        self.placed_items,
                         is_small_item=True
                     )
                     
@@ -922,17 +886,19 @@ class UltimatePackingService:
                     if position is not None and dimensions is not None and rotation is not None:
                         is_valid, _ = self._validate_placement(
                             position, dimensions,
-                            [container_width, container_height, container_depth],
-                            placed_items
+                            [self.container_width, self.container_height, self.container_depth],
+                            self.placed_items
                         )
                         
                         if is_valid:
-                            # Small items can have less support
+                            # Small items can have less support (50% threshold)
                             has_support, _ = self.support_validator.has_support(
-                                position, dimensions, placed_items, is_small_item=True
+                                position, dimensions, self.placed_items, is_small_item=True
                             )
                             
-                            if has_support or abs(position[1]) < 0.001 or dimensions[1] < 0.3:
+                            # FIXED: Removed hardcoded bypass `or dimensions[1] < 0.3` which caused floating items
+                            # All items must have proper support or be on floor
+                            if has_support or abs(position[1]) < 0.001:
                                 packed_items.append({
                                     'id': item['id'],
                                     'position': position,
@@ -941,7 +907,7 @@ class UltimatePackingService:
                                     'original_item': item
                                 })
                                 
-                                placed_items.append({
+                                self.placed_items.append({
                                     'id': item['id'],
                                     'position': position,
                                     'dimensions': dimensions
@@ -953,6 +919,9 @@ class UltimatePackingService:
                                 phase3_items.remove(item)
                                 items_packed = True
                                 print(f"✅ PHASE 3.{pass_count} packed: {item['id']} at {position}")
+                                
+                                # Validate space volumes after each placement
+                                self._validate_packing_state(container_volume)
             
             # ============ PHASE 4: FINAL ATTEMPT - FILL EVERY POSSIBLE GAP ============
             if phase3_items:
@@ -1009,37 +978,46 @@ class UltimatePackingService:
                                     # Check boundaries
                                     is_valid, _ = self.boundary_validator.is_item_within_container(
                                         [x, y, test_z], orient_dims,
-                                        [container_width, container_height, container_depth]
+                                        [self.container_width, self.container_height, self.container_depth]
                                     )
                                     
                                     if is_valid:
                                         # Check overlap
                                         has_overlap, _ = self.overlap_validator.check_item_with_placed(
-                                            [x, y, test_z], orient_dims, placed_items
+                                            [x, y, test_z], orient_dims, self.placed_items
                                         )
                                         
                                         if not has_overlap:
-                                            # Final attempt - pack it
-                                            packed_items.append({
-                                                'id': item['id'],
-                                                'position': [x, y, test_z],
-                                                'dimensions': orient_dims,
-                                                'rotation': rotation_map.get(orient_idx, [0, 0, 0]),
-                                                'original_item': item
-                                            })
+                                            # FIXED: Added support validation to Phase 4
+                                            has_support, _ = self.support_validator.has_support(
+                                                [x, y, test_z], orient_dims, self.placed_items, is_small_item=True
+                                            )
                                             
-                                            placed_items.append({
-                                                'id': item['id'],
-                                                'position': [x, y, test_z],
-                                                'dimensions': orient_dims
-                                            })
-                                            
-                                            packed_volume += orient_dims[0] * orient_dims[1] * orient_dims[2]
-                                            packed_weight += item.get('weight', 0)
-                                            processed_ids.add(item['id'])
-                                            placed = True
-                                            print(f"✅ PHASE 4 packed: {item['id']}")
-                                            break
+                                            if has_support or abs(y) < 0.001:
+                                                # Final attempt - pack it
+                                                packed_items.append({
+                                                    'id': item['id'],
+                                                    'position': [x, y, test_z],
+                                                    'dimensions': orient_dims,
+                                                    'rotation': rotation_map.get(orient_idx, [0, 0, 0]),
+                                                    'original_item': item
+                                                })
+                                                
+                                                self.placed_items.append({
+                                                    'id': item['id'],
+                                                    'position': [x, y, test_z],
+                                                    'dimensions': orient_dims
+                                                })
+                                                
+                                                packed_volume += orient_dims[0] * orient_dims[1] * orient_dims[2]
+                                                packed_weight += item.get('weight', 0)
+                                                processed_ids.add(item['id'])
+                                                placed = True
+                                                print(f"✅ PHASE 4 packed: {item['id']}")
+                                                
+                                                # Validate space volumes after each placement
+                                                self._validate_packing_state(container_volume)
+                                                break
             
             # Add any remaining items to unpacked
             for item in items_data:
@@ -1068,10 +1046,17 @@ class UltimatePackingService:
             print(f"   - Remaining spaces: {len(remaining_spaces)} (volume: {remaining_space_volume:.2f}m³)")
             print(f"   - Time: {(time.time() - start_time)*1000:.1f}ms")
             
+            # Final validation
+            if remaining_space_volume > container_volume * 1.01:
+                print("⚠️ Warning: Remaining space volume exceeds container volume - rebuilding spaces...")
+                self._rebuild_spaces_from_placed_items()
+                remaining_spaces = self.mes_finder.get_all_spaces()
+                remaining_space_volume = sum(s.volume for s in remaining_spaces)
+            
             return self._build_response(
                 job_id, start_time, request.bin_config,
                 packed_items, unpacked_items, items_data,
-                container_width, container_height, container_depth,
+                self.container_width, self.container_height, self.container_depth,
                 packed_volume, packed_weight, space_utilization, packing_efficiency,
                 strategy, volume_efficiency, remaining_spaces
             )
@@ -1097,6 +1082,35 @@ class UltimatePackingService:
             return False, overlap_msg
         
         return True, "Valid"
+    
+    def _validate_packing_state(self, container_volume: float) -> bool:
+        """Validate the current packing state"""
+        if not self.mes_finder.validate_space_volume(container_volume):
+            # If spaces are invalid, rebuild them from scratch
+            print("🔄 Rebuilding spaces from placed items...")
+            self._rebuild_spaces_from_placed_items()
+            return False
+        return True
+    
+    def _rebuild_spaces_from_placed_items(self):
+        """Rebuild empty spaces from placed items when corruption is detected"""
+        if not self.placed_items:
+            return
+        
+        # Reset to full container
+        container_dims = [
+            self.container_width,
+            self.container_height,
+            self.container_depth
+        ]
+        self.mes_finder.reset(container_dims)
+        
+        # Re-apply all placed items in order
+        for item in self.placed_items:
+            self.mes_finder._update_all_spaces(
+                item['position'],
+                item['dimensions']
+            )
     
     def _prepare_items_data_safely(self, items: List[ItemSchema]) -> List[Dict]:
         """Prepare items data safely"""
@@ -1499,5 +1513,4 @@ class UltimatePackingService:
         except Exception:
             return '#3B82F6'
 
-# Create singleton instance
 packing_service = UltimatePackingService()
