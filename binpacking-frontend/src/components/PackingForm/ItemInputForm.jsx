@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import * as XLSX from "xlsx";
+import ExcelJS from 'exceljs'; // Replace XLSX with ExcelJS
 import {
   Dialog,
   DialogTitle,
@@ -74,7 +74,7 @@ const UNIT_DISPLAY = {
 
 const ItemInputForm = ({ items = [], onItemsChange, onImport, onTemplate }) => {
   const [unit, setUnit] = useState('meters');
-  const [importUnit, setImportUnit] = useState('meters'); // Unit for import interpretation
+  const [importUnit, setImportUnit] = useState('meters');
   const [showUnitSelector, setShowUnitSelector] = useState(false);
   
   const [newItem, setNewItem] = useState({
@@ -195,7 +195,7 @@ const ItemInputForm = ({ items = [], onItemsChange, onImport, onTemplate }) => {
     onItemsChange(updated);
   };
 
-  /* ---------------- FILE IMPORT ---------------- */
+  /* ---------------- FILE IMPORT WITH EXCELJS ---------------- */
   const processImport = (rows) => {
     let issues = [];
     let processed = [];
@@ -304,76 +304,73 @@ const ItemInputForm = ({ items = [], onItemsChange, onImport, onTemplate }) => {
     });
   };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Show unit selector if not already shown
+    // Show unit selector
     setShowUnitSelector(true);
 
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      try {
-        let workbook;
-        let jsonData;
-        
-        if (file.name.endsWith('.csv')) {
-          workbook = XLSX.read(e.target.result, { type: "string" });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          jsonData = XLSX.utils.sheet_to_json(sheet);
-        } else {
-          const data = new Uint8Array(e.target.result);
-          workbook = XLSX.read(data, { type: "array" });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          
-          jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          
-          const headers = jsonData[0];
-          const rows = [];
-          
-          for (let i = 1; i < jsonData.length; i++) {
-            const row = jsonData[i];
-            if (row && row.some(cell => cell !== undefined && cell !== null && cell !== '')) {
-              const rowObj = {};
-              headers.forEach((header, index) => {
-                if (header) {
-                  const cleanHeader = String(header).trim();
-                  rowObj[cleanHeader] = row[index];
-                }
-              });
-              rows.push(rowObj);
-            }
-          }
-          jsonData = rows;
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const buffer = await file.arrayBuffer();
+      
+      await workbook.xlsx.load(buffer);
+      
+      // Get first worksheet
+      const worksheet = workbook.worksheets[0];
+      
+      // Extract headers from first row
+      const headers = [];
+      worksheet.getRow(1).eachCell((cell, colNumber) => {
+        if (cell.value) {
+          headers[colNumber] = String(cell.value).trim();
         }
+      });
 
-        console.log('Parsed Excel data:', jsonData);
+      console.log('Excel headers:', headers);
+
+      // Extract data rows (skip header row)
+      const jsonData = [];
+      
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // Skip header row
         
-        // Store the parsed data temporarily
-        setImportSummary({
-          open: true,
-          issues: [],
-          processedItems: [],
-          rawData: jsonData
+        const rowData = {};
+        let hasData = false;
+        
+        row.eachCell((cell, colNumber) => {
+          const header = headers[colNumber];
+          if (header && cell.value !== null && cell.value !== undefined) {
+            rowData[header] = cell.value;
+            hasData = true;
+          }
         });
         
-      } catch (error) {
-        console.error("Error parsing file:", error);
-        alert(`Error parsing file: ${error.message}. Please check the file format.`);
-      }
-    };
+        if (hasData) {
+          jsonData.push(rowData);
+        }
+      });
 
-    if (file.name.endsWith('.csv')) {
-      reader.readAsText(file);
-    } else {
-      reader.readAsArrayBuffer(file);
+      console.log('Parsed Excel data with exceljs:', jsonData);
+      
+      // Store the parsed data temporarily
+      setImportSummary({
+        open: true,
+        issues: [],
+        processedItems: [],
+        rawData: jsonData
+      });
+      
+    } catch (error) {
+      console.error("Error parsing file with exceljs:", error);
+      alert(`Error parsing file: ${error.message}. Please check the file format.`);
     }
 
     event.target.value = '';
   };
 
-  // New function to process import with selected unit
+  // Process import with selected unit
   const handleImportWithUnit = () => {
     if (importSummary.rawData) {
       processImport(importSummary.rawData);

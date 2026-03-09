@@ -29,7 +29,7 @@ export const AuthProvider = ({ children }) => {
       response => response,
       error => {
         if (error.code === 'ERR_NETWORK') {
-          console.error('Network error - backend not reachable at http://localhost:8000');
+          console.error('Network error - backend not reachable at ', `${axios.defaults.baseURL}/api/auth/login`);
         }
         return Promise.reject(error);
       }
@@ -107,7 +107,7 @@ export const AuthProvider = ({ children }) => {
       params.append('username', username.trim());
       params.append('password', password);
       
-      console.log('Attempting login to:', 'http://localhost:8000/api/auth/login');
+      console.log('Attempting login to:', `${axios.defaults.baseURL}/api/auth/login`);
       
       const response = await axios.post('/api/auth/login', params, {
         headers: {

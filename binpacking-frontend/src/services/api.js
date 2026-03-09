@@ -31,7 +31,7 @@ export const api = {
     
     console.log("📤 [api.js] Sending request to backend:", JSON.stringify(requestData, null, 2));
 
-    const response = await fetch(`${API_BASE_URL}/packing/calculate`, {
+    const response = await fetch(`${API_BASE_URL}/api/packing/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestData),
@@ -125,7 +125,7 @@ export const api = {
 
   // Get packing algorithms
   async getAlgorithms() {
-    const response = await fetch(`${API_BASE_URL}/packing/algorithms`);
+    const response = await fetch(`${API_BASE_URL}/algorithms`);
     return await response.json();
   },
 };
