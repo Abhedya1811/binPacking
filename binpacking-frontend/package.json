@@ -34,13 +34,6 @@
     "@types/react-dom": "^18.3.6",
     "@vitejs/plugin-react": "^4.3.4",
     "vite": "^6.2.6"
-  },
-  "resolutions": {
-    "jspdf": "3.0.1",
-    "xlsx": "0.18.5"
-  },
-  "overrides": {
-    "jspdf": "3.0.1",
-    "xlsx": "0.18.5"
   }
+ 
 }
