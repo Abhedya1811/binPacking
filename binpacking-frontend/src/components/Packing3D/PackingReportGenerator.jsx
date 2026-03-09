@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } f
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import html2canvas from 'html2canvas';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 const PackingReportGenerator = forwardRef(({ 
   packingResult, 
@@ -548,15 +548,27 @@ const PackingReportGenerator = forwardRef(({
   };
 
   // Generate Excel Report
-  const generateExcel = () => {
+  const generateExcel = async () => {
     setIsGenerating(true);
     
     try {
-      const wb = XLSX.utils.book_new();
+      // Create a new workbook
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = '3D Bin Packing System';
+      workbook.created = new Date();
       
-      // Container Info
+      // Set default font for better appearance
+      workbook.eachSheet((sheet) => {
+        sheet.properties.defaultRowHeight = 20;
+      });
+      
+      // ==================== SUMMARY SHEET ====================
+      const summarySheet = workbook.addWorksheet('Summary', {
+        properties: { tabColor: { argb: 'FF3B82F6' } }
+      });
+      
+      // Container dimensions
       let containerWidth = 17, containerHeight = 8, containerDepth = 10;
-      
       try {
         if (packingResult?.visualization_data?.container) {
           const container = packingResult.visualization_data.container;
@@ -571,33 +583,88 @@ const PackingReportGenerator = forwardRef(({
         }
       } catch (e) {}
       
-      const containerData = [
-        ['CONTAINER INFORMATION'],
-        ['Dimension', 'Value (m)'],
-        ['Width', containerWidth],
-        ['Height', containerHeight],
-        ['Depth', containerDepth],
-        ['Volume', `${(containerWidth * containerHeight * containerDepth).toFixed(2)} m³`],
-        [],
-        ['PACKING SUMMARY'],
-        ['Metric', 'Value'],
-        ['Packed Items', packingResult?.visualization_data?.items?.length || packingResult?.bins?.[0]?.items?.length || packingResult?.packedItems?.length || 0],
-        ['Unpacked Items', packingResult?.visualization_data?.unpacked_items?.length || packingResult?.unpacked_items?.length || 0],
-        ['Total Volume', `${calculateTotalVolume(packingResult).toFixed(2)} m³`],
-        ['Space Utilization', `${((calculateTotalVolume(packingResult) / (containerWidth * containerHeight * containerDepth)) * 100).toFixed(1)}%`]
+      const containerVolume = containerWidth * containerHeight * containerDepth;
+      const packedItems = packingResult?.visualization_data?.items?.length || 
+                         packingResult?.bins?.[0]?.items?.length || 
+                         packingResult?.packedItems?.length || 0;
+      const unpackedItems = packingResult?.visualization_data?.unpacked_items?.length ||
+                           packingResult?.unpacked_items?.length || 0;
+      const totalVolume = calculateTotalVolume(packingResult);
+      const efficiency = containerVolume > 0 ? (totalVolume / containerVolume) * 100 : 0;
+      
+      // Add title with styling
+      const titleRow = summarySheet.addRow(['3D BIN PACKING REPORT']);
+      titleRow.font = { size: 18, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF3B82F6' }
+      };
+      titleRow.alignment = { horizontal: 'center' };
+      summarySheet.mergeCells('A1:D1');
+      summarySheet.addRow([]); // Empty row for spacing
+      
+      // Container Information
+      summarySheet.addRow(['CONTAINER INFORMATION']).font = { size: 14, bold: true, color: { argb: 'FF1E293B' } };
+      summarySheet.addRow(['Dimension', 'Value (m)']).font = { bold: true };
+      summarySheet.addRow(['Width', containerWidth.toFixed(2)]);
+      summarySheet.addRow(['Height', containerHeight.toFixed(2)]);
+      summarySheet.addRow(['Depth', containerDepth.toFixed(2)]);
+      summarySheet.addRow(['Volume', `${containerVolume.toFixed(2)} m³`]);
+      summarySheet.addRow([]);
+      
+      // Packing Summary
+      summarySheet.addRow(['PACKING SUMMARY']).font = { size: 14, bold: true, color: { argb: 'FF1E293B' } };
+      summarySheet.addRow(['Metric', 'Value']).font = { bold: true };
+      summarySheet.addRow(['Packed Items', packedItems]);
+      summarySheet.addRow(['Unpacked Items', unpackedItems]);
+      summarySheet.addRow(['Total Volume', `${totalVolume.toFixed(2)} m³`]);
+      summarySheet.addRow(['Space Utilization', `${efficiency.toFixed(1)}%`]);
+      
+      // Auto-fit columns
+      summarySheet.columns.forEach(column => {
+        column.width = 20;
+      });
+      
+      // Add borders to all cells with data
+      summarySheet.eachRow((row, rowNum) => {
+        if (rowNum > 2) { // Skip title row and empty row
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
+        }
+      });
+      
+      // ==================== PACKED ITEMS SHEET ====================
+      const packedSheet = workbook.addWorksheet('Packed Items', {
+        properties: { tabColor: { argb: 'FF10B981' } }
+      });
+      
+      // Headers with styling
+      const packedHeaders = [
+        'ID', 'Name', 'Color', 'Width (m)', 'Height (m)', 'Depth (m)', 
+        'Quantity', 'Volume (m³)', 'Position X', 'Position Y', 'Position Z',
+        'Rotation X', 'Rotation Y', 'Rotation Z'
       ];
       
-      const containerSheet = XLSX.utils.aoa_to_sheet(containerData);
-      XLSX.utils.book_append_sheet(wb, containerSheet, 'Summary');
+      const headerRow = packedSheet.addRow(packedHeaders);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF10B981' }
+      };
+      headerRow.alignment = { horizontal: 'center' };
       
-      // Packed Items with Colors
+      // Add data rows
       const items = packingResult?.visualization_data?.items || 
                    packingResult?.bins?.[0]?.items || 
                    packingResult?.packedItems || [];
-      
-      const packedData = [
-        ['ID', 'Name', 'Color', 'Width (m)', 'Height (m)', 'Depth (m)', 'Quantity', 'Volume (m³)', 'Position X', 'Position Y', 'Position Z', 'Rotation X', 'Rotation Y', 'Rotation Z']
-      ];
       
       items.forEach(item => {
         try {
@@ -606,7 +673,7 @@ const PackingReportGenerator = forwardRef(({
           const [rx, ry, rz] = item.rotation || [0, 0, 0];
           const volume = (w * h * d * (item.quantity || 1)).toFixed(3);
           
-          packedData.push([
+          const row = packedSheet.addRow([
             item.id || '',
             item.name || '',
             item.color || '#10b981',
@@ -622,18 +689,49 @@ const PackingReportGenerator = forwardRef(({
             ry,
             rz
           ]);
+          
+          // Color the Name cell background
+          if (item.color) {
+            row.getCell(2).fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: item.color.replace('#', 'FF') }
+            };
+          }
+          
+          // Center numeric values
+          [4,5,6,8,9,10,11,12,13,14].forEach(colIndex => {
+            row.getCell(colIndex).alignment = { horizontal: 'center' };
+          });
         } catch (e) {}
       });
       
-      const packedSheet = XLSX.utils.aoa_to_sheet(packedData);
-      XLSX.utils.book_append_sheet(wb, packedSheet, 'Packed Items');
+      // Auto-fit columns
+      packedSheet.columns.forEach(column => {
+        column.width = 15;
+      });
       
-      // Step-by-Step Instructions
+      // ==================== STEP-BY-STEP SHEET ====================
       if (items.length > 0) {
+        const stepSheet = workbook.addWorksheet('Step-by-Step', {
+          properties: { tabColor: { argb: 'FF8B5CF6' } }
+        });
+        
         const instructions = generateStepByStepInstructions(items);
-        const stepData = [
-          ['Step', 'Item Name', 'Color', 'Dimensions (m)', 'Position', 'Rotation', 'Volume (m³)'],
-          ...instructions.map(step => [
+        
+        // Headers
+        const stepHeaders = ['Step', 'Item Name', 'Color', 'Dimensions (m)', 'Position', 'Rotation', 'Volume (m³)'];
+        const stepHeaderRow = stepSheet.addRow(stepHeaders);
+        stepHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        stepHeaderRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF8B5CF6' }
+        };
+        
+        // Data rows
+        instructions.forEach(step => {
+          const row = stepSheet.addRow([
             step.step,
             step.name,
             step.color,
@@ -641,28 +739,50 @@ const PackingReportGenerator = forwardRef(({
             step.position,
             step.rotation,
             step.volume
-          ])
-        ];
+          ]);
+          
+          // Color the Name cell background
+          if (step.color) {
+            row.getCell(2).fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: step.color.replace('#', 'FF') }
+            };
+          }
+          
+          // Center step number
+          row.getCell(1).alignment = { horizontal: 'center' };
+        });
         
-        const stepSheet = XLSX.utils.aoa_to_sheet(stepData);
-        XLSX.utils.book_append_sheet(wb, stepSheet, 'Step-by-Step');
+        stepSheet.columns.forEach(column => {
+          column.width = column.number === 3 ? 12 : 18; // Color column narrower
+        });
       }
       
-      // Unpacked Items
+      // ==================== UNPACKED ITEMS SHEET ====================
       const unpacked = packingResult?.visualization_data?.unpacked_items ||
                       packingResult?.unpacked_items || [];
       
       if (unpacked.length > 0) {
-        const unpackedData = [
-          ['ID', 'Name', 'Color', 'Width (m)', 'Height (m)', 'Depth (m)', 'Quantity', 'Volume (m³)', 'Reason']
-        ];
+        const unpackedSheet = workbook.addWorksheet('Unpacked Items', {
+          properties: { tabColor: { argb: 'FFEF4444' } }
+        });
+        
+        const unpackedHeaders = ['ID', 'Name', 'Color', 'Width (m)', 'Height (m)', 'Depth (m)', 'Quantity', 'Volume (m³)', 'Reason'];
+        const unpackedHeaderRow = unpackedSheet.addRow(unpackedHeaders);
+        unpackedHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        unpackedHeaderRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFEF4444' }
+        };
         
         unpacked.forEach(item => {
           try {
             const [w, h, d] = item.dimensions || [0, 0, 0];
             const volume = (w * h * d * (item.quantity || 1)).toFixed(3);
             
-            unpackedData.push([
+            const row = unpackedSheet.addRow([
               item.id || '',
               item.name || '',
               item.color || '#ef4444',
@@ -673,29 +793,63 @@ const PackingReportGenerator = forwardRef(({
               volume,
               item.reason || 'No space available'
             ]);
+            
+            // Color the Name cell background
+            if (item.color) {
+              row.getCell(2).fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: item.color.replace('#', 'FF') }
+              };
+            }
+            
+            // Center numeric values
+            [4,5,6,7,8].forEach(colIndex => {
+              row.getCell(colIndex).alignment = { horizontal: 'center' };
+            });
           } catch (e) {}
         });
         
-        const unpackedSheet = XLSX.utils.aoa_to_sheet(unpackedData);
-        XLSX.utils.book_append_sheet(wb, unpackedSheet, 'Unpacked Items');
+        unpackedSheet.columns.forEach(column => {
+          column.width = column.number === 9 ? 30 : 15; // Reason column wider
+        });
       }
       
-      // Camera Angles Sheet
+      // ==================== CAMERA ANGLES SHEET ====================
       if (savedAngles.length > 0) {
-        const anglesData = [
-          ['SAVED CAMERA ANGLES'],
-          ['Name', 'Timestamp'],
-          ...savedAngles.map(angle => [angle.name, angle.timestamp])
-        ];
+        const anglesSheet = workbook.addWorksheet('Camera Angles', {
+          properties: { tabColor: { argb: 'FFF59E0B' } }
+        });
         
-        const anglesSheet = XLSX.utils.aoa_to_sheet(anglesData);
-        XLSX.utils.book_append_sheet(wb, anglesSheet, 'Camera Angles');
+        anglesSheet.addRow(['SAVED CAMERA ANGLES']).font = { size: 16, bold: true };
+        anglesSheet.addRow([]);
+        anglesSheet.addRow(['Name', 'Timestamp']).font = { bold: true };
+        
+        savedAngles.forEach(angle => {
+          anglesSheet.addRow([angle.name, angle.timestamp]);
+        });
+        
+        anglesSheet.columns.forEach(column => {
+          column.width = 30;
+        });
       }
       
-      XLSX.writeFile(wb, `packing-data-${new Date().toISOString().split('T')[0]}.xlsx`);
+      // ==================== GENERATE AND DOWNLOAD ====================
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `packing-data-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
       
     } catch (error) {
-      console.error('Error generating Excel:', error);
+      console.error('Error generating Excel with exceljs:', error);
+      // Fallback: Show user-friendly error
+      alert('Failed to generate Excel file. Please try again.');
     } finally {
       setIsGenerating(false);
     }

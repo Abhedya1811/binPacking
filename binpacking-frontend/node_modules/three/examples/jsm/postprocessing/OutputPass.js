@@ -5,7 +5,10 @@ import {
 	LinearToneMapping,
 	ReinhardToneMapping,
 	CineonToneMapping,
+	AgXToneMapping,
 	ACESFilmicToneMapping,
+	NeutralToneMapping,
+	CustomToneMapping,
 	SRGBTransfer
 } from 'three';
 import { Pass, FullScreenQuad } from './Pass.js';
@@ -59,6 +62,9 @@ class OutputPass extends Pass {
 			else if ( this._toneMapping === ReinhardToneMapping ) this.material.defines.REINHARD_TONE_MAPPING = '';
 			else if ( this._toneMapping === CineonToneMapping ) this.material.defines.CINEON_TONE_MAPPING = '';
 			else if ( this._toneMapping === ACESFilmicToneMapping ) this.material.defines.ACES_FILMIC_TONE_MAPPING = '';
+			else if ( this._toneMapping === AgXToneMapping ) this.material.defines.AGX_TONE_MAPPING = '';
+			else if ( this._toneMapping === NeutralToneMapping ) this.material.defines.NEUTRAL_TONE_MAPPING = '';
+			else if ( this._toneMapping === CustomToneMapping ) this.material.defines.CUSTOM_TONE_MAPPING = '';
 
 			this.material.needsUpdate = true;
 
