@@ -135,7 +135,7 @@ export const AuthProvider = ({ children }) => {
       if (err.code === 'ERR_NETWORK') {
         message = '❌ Network error';
       } else if (err.response?.status === 401) {
-        message = 'Invalid username or password. Use: admin / admin123';
+        message = 'Invalid username or password.';
       } else if (err.response?.data?.detail) {
         message = err.response.data.detail;
       }

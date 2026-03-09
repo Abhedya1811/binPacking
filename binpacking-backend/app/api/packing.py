@@ -14,7 +14,6 @@ router = APIRouter()
 @router.post("/calculate", response_model=PackingResult)
 async def calculate_packing(request: PackingRequest):
    
-    breakpoint()
     try:
         result = packing_service.calculate_packing(request)
         
