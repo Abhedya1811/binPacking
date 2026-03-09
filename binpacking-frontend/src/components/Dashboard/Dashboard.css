@@ -128,7 +128,7 @@
 
 /* Configuration Panel */
 .config-panel {
-  background: white;
+  background: #fafbfc;
   z-index: 10;
   display: flex;
   flex-direction: column;
