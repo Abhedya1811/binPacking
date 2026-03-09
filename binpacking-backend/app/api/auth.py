@@ -86,22 +86,7 @@ async def refresh_token(token: str = Depends(oauth2_scheme)):
         "expires_in": new_token["expires_in"]
     }
 
-@router.post("/change-password", response_model=MessageResponse)
-async def change_password(
-    password_data: PasswordChange,
-    current_user: dict = Depends(get_current_user)
-):
- 
-    result = auth_service.change_password(
-        password_data.current_password,
-        password_data.new_password,
-        current_user
-    )
-    
-    return MessageResponse(
-        message=result["message"],
-        details={"instructions": result.get("instructions")}
-    )
+
 
 @router.post("/logout")
 async def logout():
