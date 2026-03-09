@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { jsPDF } from 'jspdf';  // Correct import for jsPDF 3.x/4.x
+import autoTable from 'jspdf-autotable';  // Correct import for jspdf-autotable
 import html2canvas from 'html2canvas';
 import ExcelJS from 'exceljs';
 
@@ -401,7 +401,8 @@ const PackingReportGenerator = forwardRef(({
           `${step.volume} m³`
         ]);
         
-        doc.autoTable({
+        // Use autoTable function with the doc instance
+        autoTable(doc, {
           startY: 30,
           head: [['Step', 'Item', 'Dimensions', 'Position', 'Rotation', 'Volume']],
           body: stepData,
@@ -453,7 +454,8 @@ const PackingReportGenerator = forwardRef(({
           }
         });
         
-        doc.autoTable({
+        // Use autoTable function with the doc instance
+        autoTable(doc, {
           startY: 30,
           head: [['#', 'Item Name', 'Dimensions (m)', 'Qty', 'Volume', 'Position']],
           body: tableData,
@@ -510,7 +512,8 @@ const PackingReportGenerator = forwardRef(({
           }
         });
         
-        doc.autoTable({
+        // Use autoTable function with the doc instance
+        autoTable(doc, {
           startY: 30,
           head: [['#', 'Item Name', 'Dimensions (m)', 'Qty', 'Volume', 'Reason']],
           body: unpackedData,
