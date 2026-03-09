@@ -20,7 +20,7 @@ export const AuthProvider = ({ children }) => {
 
   // Setup axios defaults
   useEffect(() => {
-    axios.defaults.baseURL = 'http://localhost:8000';
+    axios.defaults.baseURL = import.meta.env.VITE_API_URL;
     axios.defaults.headers.common['Content-Type'] = 'application/json';
     axios.defaults.withCredentials = false;
     
