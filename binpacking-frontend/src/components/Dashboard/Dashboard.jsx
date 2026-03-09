@@ -412,7 +412,7 @@ const Dashboard = () => {
             {/* Right - Admin Actions */}
             <Box className="header-right">
               <Tooltip title="Refresh">
-                <IconButton onClick={() => navigate(0)} size="small">
+                <IconButton  onClick={() => window.location.reload()}  size="small">
                   <RefreshIcon  />
                 </IconButton>
               </Tooltip>
