@@ -1,9 +1,9 @@
 """
 ULTIMATE 3D BIN PACKING - PY3DBP + OR-TOOLS + MES
-- FIXED: MES space splitting coordinates
+- MODIFIED: X-axis first, then Z-axis filling
+- FIXED: Door gap maintained ONLY on front (Z-axis), no gap on back
 - FIXED: Gravity validation in all phases
-- FIXED: Removed hardcoded bypass for flat items
-- OPTIMIZED: Proper Z-axis gap filling with physics
+- OPTIMIZED: Proper X-axis gap filling with back Z-axis filling
 """
 
 from dataclasses import dataclass, field
@@ -381,15 +381,16 @@ class ORToolsOptimizer:
 
 
 # ====================================================================
-# MAXIMAL EMPTY SPACES FINDER - ENHANCED FOR Z-AXIS GAP FILLING
-# FIXED: Coordinate typos in space splitting
+# MAXIMAL EMPTY SPACES FINDER - MODIFIED FOR X-AXIS FIRST FILLING
+# FIXED: Door gap ONLY on front (Z-axis), no gap on back
+# MODIFIED: X-axis primary, Z-axis secondary with back filling
 # ====================================================================
 
 class MaximalEmptySpacesFinder:
     """
     Implements Maximal Empty Spaces (MES) algorithm for optimal packing
-    ENHANCED: Z-axis gap filling and better space utilization
-    FIXED: Proper space splitting coordinates
+    MODIFIED: X-axis first filling, then Z-axis
+    FIXED: Door gap ONLY on front (Z-axis), no gap on back
     """
     
     def __init__(self):
@@ -398,18 +399,22 @@ class MaximalEmptySpacesFinder:
         self.support_validator = SupportValidator()
         self.spaces = []
         self.door_gap = 0.3
+        self.tolerance = 0.001
     
     def reset(self, container_dims: List[float]):
-        """Reset with initial empty space"""
+        """Reset with initial empty space - door gap ONLY on front (Z-axis)"""
         cw, ch, cd = container_dims
-        effective_width = cw - self.door_gap
-        self.spaces = [Space3D(0, 0, 0, effective_width, ch, cd)]
+        # Door gap ONLY on front (Z-axis) - items cannot be placed in first 0.3m
+        # But they can go all the way to the back (no gap on back)
+        self.spaces = [Space3D(0, 0, self.door_gap, cw, ch, cd - self.door_gap)]
+        print(f"🚪 Door gap: {self.door_gap}m on front (Z-axis) ONLY")
+        print(f"📦 Packing area: Z from {self.door_gap}m to {cd:.2f}m (full depth to back)")
     
     def find_best_position(self, item_dims: List[float], container_dims: List[float],
                           placed_items: List[Dict], is_small_item: bool = False) -> Tuple[Optional[List[float]], Optional[List[float]], Optional[List[float]]]:
         """
-        Find best position using improved MES approach
-        Enhanced for Z-axis gap filling
+        Find best position using X-axis first, then Z-axis approach
+        FIXED: Items can go all the way to the back (max Z)
         """
         try:
             w, h, d = item_dims
@@ -419,8 +424,9 @@ class MaximalEmptySpacesFinder:
             best_space_idx = -1
             best_score = float('-inf')
             
-            # Sort spaces by Z position (front to back) and then by volume
-            sorted_spaces = sorted(enumerate(self.spaces), key=lambda x: (x[1].z, -x[1].volume))
+            # Sort spaces by X position (left to right) and then by volume
+            # This prioritizes filling across width first
+            sorted_spaces = sorted(enumerate(self.spaces), key=lambda x: (x[1].x, -x[1].volume))
             
             for idx, space in sorted_spaces:
                 # Try all 6 orientations
@@ -433,74 +439,118 @@ class MaximalEmptySpacesFinder:
                     ([d, h, w], [90.0, 0.0, 90.0])
                 ]
                 
-                # Sort orientations by how well they fill the space depth (Z-axis)
-                orientations.sort(key=lambda o: -min(o[0][2], space.depth))
+                # Sort orientations by how well they fill the space width (X-axis)
+                orientations.sort(key=lambda o: -min(o[0][0], space.width))
                 
                 for orient_dims, rotation in orientations:
                     ow, oh, od = orient_dims
                     
-                    # Check if orientation fits
-                    if (ow <= space.width + 0.001 and 
-                        oh <= space.height + 0.001 and 
-                        od <= space.depth + 0.001):
+                    # Check if orientation fits (with tolerance)
+                    if (ow <= space.width + self.tolerance and 
+                        oh <= space.height + self.tolerance and 
+                        od <= space.depth + self.tolerance):
                         
-                        # Try multiple Z positions to fill gaps
-                        z_positions = [space.z]
+                        # Try multiple X positions to fill gaps
+                        x_positions = [space.x]
                         
-                        # For better Z-axis filling, try positions that align with existing items
+                        # For better X-axis filling, try positions that align with existing items
                         if len(placed_items) > 0:
-                            # Try positions that align with item edges in Z-axis
+                            # Try positions that align with item edges in X-axis
                             for item in placed_items[-5:]:  # Check recent items
-                                item_z_end = item['position'][2] + item['dimensions'][2]
-                                if item_z_end + od <= space.z + space.depth + 0.001:
-                                    z_positions.append(item_z_end)
+                                item_x_end = item['position'][0] + item['dimensions'][0]
+                                if item_x_end + ow <= space.x + space.width + self.tolerance:
+                                    x_positions.append(item_x_end)
                         
                         # Remove duplicates and sort
-                        z_positions = sorted(list(set([round(z, 4) for z in z_positions if z >= space.z - 0.001])))
+                        x_positions = sorted(list(set([round(x, 4) for x in x_positions 
+                                                      if x >= space.x - self.tolerance])))
                         
-                        for test_z in z_positions:
-                            x, y = space.x, space.y
+                        for test_x in x_positions:
+                            # FIXED: Try MULTIPLE Z positions to fill to the back
+                            # 1. Start at the front (space.z)
+                            # 2. Try the back-most position (space.z + space.depth - od)
+                            # 3. Try positions aligned with existing items
                             
-                            # Check if position is valid
-                            if test_z + od > space.z + space.depth + 0.001:
-                                continue
+                            z_positions = [space.z]  # Front position
                             
-                            # Check overlap
-                            overlap = False
-                            for placed in placed_items:
-                                if self.overlap_validator.check_overlap(
-                                    [x, y, test_z], [ow, oh, od],
-                                    placed['position'], placed['dimensions']
-                                ):
-                                    overlap = True
-                                    break
+                            # Add back-most position if it's valid
+                            back_z = space.z + space.depth - od
+                            if back_z >= space.z - self.tolerance:
+                                z_positions.append(back_z)
                             
-                            if not overlap:
-                                # Check support
-                                has_support, _ = self.support_validator.has_support(
-                                    [x, y, test_z], [ow, oh, od], placed_items, is_small_item=is_small_item
-                                )
+                            # Try positions aligned with existing items
+                            if len(placed_items) > 0:
+                                for item in placed_items[-5:]:
+                                    item_z = item['position'][2]
+                                    item_z_end = item_z + item['dimensions'][2]
+                                    
+                                    # Align front of new item with back of existing item
+                                    if item_z_end >= space.z - self.tolerance and item_z_end + od <= space.z + space.depth + self.tolerance:
+                                        z_positions.append(item_z_end)
+                                    
+                                    # Align back of new item with back of existing item
+                                    align_back = item_z_end - od
+                                    if align_back >= space.z - self.tolerance and align_back + od <= space.z + space.depth + self.tolerance:
+                                        z_positions.append(align_back)
+                            
+                            # Remove duplicates and sort (try front first, then back)
+                            z_positions = sorted(list(set([round(z, 4) for z in z_positions 
+                                                          if z >= space.z - self.tolerance and 
+                                                          z + od <= space.z + space.depth + self.tolerance])))
+                            
+                            for test_z in z_positions:
+                                y = space.y
                                 
-                                if has_support or abs(y) < 0.001:
-                                    # Calculate score - emphasize Z-axis filling
-                                    depth_fill = od / space.depth if space.depth > 0 else 0
-                                    volume_fill = (ow * oh * od) / space.volume if space.volume > 0 else 0
-                                    
-                                    # Prefer positions that fill Z-axis gaps
-                                    z_score = 1.0 / (abs(test_z - space.z) + 1.0)
-                                    
-                                    score = (
-                                        depth_fill * 0.4 +      # 40% weight on depth filling
-                                        volume_fill * 0.3 +     # 30% weight on volume filling
-                                        z_score * 0.3           # 30% weight on Z position
+                                # Check if position is valid within space
+                                if test_x + ow > space.x + space.width + self.tolerance:
+                                    continue
+                                
+                                # Check overlap
+                                overlap = False
+                                for placed in placed_items:
+                                    if self.overlap_validator.check_overlap(
+                                        [test_x, y, test_z], [ow, oh, od],
+                                        placed['position'], placed['dimensions']
+                                    ):
+                                        overlap = True
+                                        break
+                                
+                                if not overlap:
+                                    # Check support
+                                    has_support, _ = self.support_validator.has_support(
+                                        [test_x, y, test_z], [ow, oh, od], 
+                                        placed_items, is_small_item=is_small_item
                                     )
                                     
-                                    if score > best_score:
-                                        best_score = score
-                                        best_pos = [x, y, test_z]
-                                        best_dims = orient_dims
-                                        best_rot = rotation
-                                        best_space_idx = idx
+                                    if has_support or abs(y) < self.tolerance:
+                                        # Calculate score - emphasize X-axis filling
+                                        width_fill = ow / space.width if space.width > 0 else 0
+                                        volume_fill = (ow * oh * od) / space.volume if space.volume > 0 else 0
+                                        
+                                        # Prefer positions that fill X-axis gaps
+                                        x_score = 1.0 / (abs(test_x - space.x) + 1.0)
+                                        
+                                        # FIXED: Score that encourages filling to the back
+                                        # Normalized Z position (0 at front, 1 at back)
+                                        z_normalized = (test_z - space.z) / space.depth if space.depth > 0 else 0
+                                        
+                                        # Prefer positions that are further back (higher Z)
+                                        # This ensures we fill to the back wall
+                                        z_score = z_normalized  # 0 at front, 1 at back
+                                        
+                                        score = (
+                                            width_fill * 0.4 +      # 40% weight on width filling
+                                            volume_fill * 0.3 +     # 30% weight on volume filling
+                                            x_score * 0.2 +         # 20% weight on X position
+                                            z_score * 0.1           # 10% weight on being toward back
+                                        )
+                                        
+                                        if score > best_score:
+                                            best_score = score
+                                            best_pos = [test_x, y, test_z]
+                                            best_dims = orient_dims
+                                            best_rot = rotation
+                                            best_space_idx = idx
             
             if best_pos is not None and best_dims is not None and best_rot is not None:
                 # Update ALL spaces that intersect with the new item
@@ -517,7 +567,7 @@ class MaximalEmptySpacesFinder:
         """
         True MES implementation: Splits ALL existing spaces that intersect 
         with the newly placed item.
-        FIXED: Use space.y and space.z for left/right spaces to prevent floating gaps
+        FIXED: Ensures spaces behind the item (toward back) are always created
         """
         x, y, z = pos
         w, h, d = dims
@@ -525,10 +575,13 @@ class MaximalEmptySpacesFinder:
         
         for space in self.spaces:
             # Check if the item intersects this empty space
-            # No intersection if they're separated in any axis
-            if (x >= space.x + space.width or x + w <= space.x or
-                y >= space.y + space.height or y + h <= space.y or
-                z >= space.z + space.depth or z + d <= space.z):
+            # No intersection if they're separated in any axis (with tolerance)
+            if (x >= space.x + space.width - self.tolerance or 
+                x + w <= space.x + self.tolerance or
+                y >= space.y + space.height - self.tolerance or 
+                y + h <= space.y + self.tolerance or
+                z >= space.z + space.depth - self.tolerance or 
+                z + d <= space.z + self.tolerance):
                 # No intersection, keep the space as is
                 new_spaces.append(space)
                 continue
@@ -536,25 +589,25 @@ class MaximalEmptySpacesFinder:
             # The item intersects this space - split it into up to 6 new spaces
             
             # 1. Space to the Right (X+ direction)
-            if x + w < space.x + space.width:
+            if x + w < space.x + space.width - self.tolerance:
                 new_spaces.append(Space3D(
-                    x + w, space.y, space.z,  # FIXED: Use space.y, space.z
+                    x + w, space.y, space.z,
                     space.x + space.width - (x + w),
                     space.height,
                     space.depth
                 ))
             
             # 2. Space to the Left (X- direction)
-            if x > space.x:
+            if x > space.x + self.tolerance:
                 new_spaces.append(Space3D(
-                    space.x, space.y, space.z, # FIXED: Use space.y, space.z
+                    space.x, space.y, space.z,
                     x - space.x,
                     space.height,
                     space.depth
                 ))
             
             # 3. Space Above (Y+ direction)
-            if y + h < space.y + space.height:
+            if y + h < space.y + space.height - self.tolerance:
                 new_spaces.append(Space3D(
                     space.x, y + h, space.z,
                     space.width,
@@ -563,7 +616,7 @@ class MaximalEmptySpacesFinder:
                 ))
             
             # 4. Space Below (Y- direction)
-            if y > space.y:
+            if y > space.y + self.tolerance:
                 new_spaces.append(Space3D(
                     space.x, space.y, space.z,
                     space.width,
@@ -571,8 +624,10 @@ class MaximalEmptySpacesFinder:
                     space.depth
                 ))
             
-            # 5. Space in Front (Z+ direction)
-            if z + d < space.z + space.depth:
+            # 5. Space in Front (Z+ direction) - TOWARD BACK
+            # FIXED: Always create space behind the item (toward back) if it exists
+            if z + d < space.z + space.depth - self.tolerance:
+                # This is space AFTER the item (toward the back)
                 new_spaces.append(Space3D(
                     space.x, space.y, z + d,
                     space.width,
@@ -580,17 +635,38 @@ class MaximalEmptySpacesFinder:
                     space.z + space.depth - (z + d)
                 ))
             
-            # 6. Space Behind (Z- direction)
-            if z > space.z:
-                new_spaces.append(Space3D(
-                    space.x, space.y, space.z,
-                    space.width,
-                    space.height,
-                    z - space.z
-                ))
+            # 6. Space Behind (Z- direction) - TOWARD FRONT
+            # FIXED: Only create if it doesn't violate door gap
+            if z > space.z + self.tolerance:
+                # This is space BEFORE the item (toward the front)
+                new_z = space.z
+                new_depth = z - space.z
+                
+                # Only add if this space is entirely after the door gap
+                if new_z >= self.door_gap - self.tolerance:
+                    # Space is entirely after door gap - safe to add
+                    new_spaces.append(Space3D(
+                        space.x, space.y, new_z,
+                        space.width,
+                        space.height,
+                        new_depth
+                    ))
+                elif new_z + new_depth > self.door_gap + self.tolerance:
+                    # Space crosses the door gap - keep only the part after door gap
+                    after_gap_depth = (new_z + new_depth) - self.door_gap
+                    if after_gap_depth > self.tolerance:
+                        new_spaces.append(Space3D(
+                            space.x, space.y, self.door_gap,
+                            space.width,
+                            space.height,
+                            after_gap_depth
+                        ))
+                # If space is entirely before door gap, discard it
         
-        # Remove zero-volume spaces and filter out subsumed spaces
-        new_spaces = [s for s in new_spaces if s.volume > 0.001]
+        # Remove zero-volume spaces
+        new_spaces = [s for s in new_spaces if s.volume > self.tolerance]
+        
+        # Remove spaces that are completely inside other spaces
         self.spaces = self._filter_subsumed_spaces(new_spaces)
     
     def _filter_subsumed_spaces(self, spaces: List[Space3D]) -> List[Space3D]:
@@ -610,10 +686,13 @@ class MaximalEmptySpacesFinder:
             for j, s2 in enumerate(spaces):
                 if i == j:
                     continue
-                # Check if s1 is entirely inside s2
-                if (s1.x >= s2.x - 0.001 and s1.x + s1.width <= s2.x + s2.width + 0.001 and
-                    s1.y >= s2.y - 0.001 and s1.y + s1.height <= s2.y + s2.height + 0.001 and
-                    s1.z >= s2.z - 0.001 and s1.z + s1.depth <= s2.z + s2.depth + 0.001):
+                # Check if s1 is entirely inside s2 (with tolerance)
+                if (s1.x >= s2.x - self.tolerance and 
+                    s1.x + s1.width <= s2.x + s2.width + self.tolerance and
+                    s1.y >= s2.y - self.tolerance and 
+                    s1.y + s1.height <= s2.y + s2.height + self.tolerance and
+                    s1.z >= s2.z - self.tolerance and 
+                    s1.z + s1.depth <= s2.z + s2.depth + self.tolerance):
                     is_subsumed = True
                     break
             
@@ -625,16 +704,16 @@ class MaximalEmptySpacesFinder:
     def _spaces_overlap(self, space1: Space3D, space2: Space3D) -> bool:
         """Check if two spaces overlap"""
         # Check X-axis overlap
-        overlap_x = not (space1.x + space1.width <= space2.x + 0.001 or 
-                         space2.x + space2.width <= space1.x + 0.001)
+        overlap_x = not (space1.x + space1.width <= space2.x + self.tolerance or 
+                         space2.x + space2.width <= space1.x + self.tolerance)
         
         # Check Y-axis overlap
-        overlap_y = not (space1.y + space1.height <= space2.y + 0.001 or 
-                         space2.y + space2.height <= space1.y + 0.001)
+        overlap_y = not (space1.y + space1.height <= space2.y + self.tolerance or 
+                         space2.y + space2.height <= space1.y + self.tolerance)
         
         # Check Z-axis overlap
-        overlap_z = not (space1.z + space1.depth <= space2.z + 0.001 or 
-                         space2.z + space2.depth <= space1.z + 0.001)
+        overlap_z = not (space1.z + space1.depth <= space2.z + self.tolerance or 
+                         space2.z + space2.depth <= space1.z + self.tolerance)
         
         return overlap_x and overlap_y and overlap_z
     
@@ -655,9 +734,9 @@ class MaximalEmptySpacesFinder:
 
 
 # ====================================================================
-# ULTIMATE PACKING SERVICE - ENHANCED WITH PROPER SORTING AND Z-AXIS FILLING
-# FIXED: Removed hardcoded bypass in Phase 3
-# FIXED: Added support validation in Phase 4
+# ULTIMATE PACKING SERVICE - MODIFIED FOR X-AXIS FIRST FILLING
+# FIXED: Door gap ONLY on front (Z-axis)
+# MODIFIED: X-axis priority in all phases with back Z-axis filling
 # ====================================================================
 
 class UltimatePackingService:
@@ -675,7 +754,7 @@ class UltimatePackingService:
         self.placed_items = []
         
     def calculate_packing(self, request: PackingRequest) -> PackingResult:
-        """Main packing calculation with proper sorting, Z-axis filling, and strict physics"""
+        """Main packing calculation with X-axis first filling"""
         start_time = time.time()
         job_id = uuid.uuid4()
         
@@ -687,6 +766,7 @@ class UltimatePackingService:
             print(f"🚀 Starting ULTIMATE packing for job {job_id}")
             print(f"📦 Using: py3dbp + OR-Tools + MES Algorithm")
             print(f"🎯 Strategy: {strategy}")
+            print(f"📐 Filling order: X-axis first, then Z-axis (with front door gap ONLY)")
             
             items_data = self._prepare_items_data_safely(request.items)
             if not items_data:
@@ -700,7 +780,6 @@ class UltimatePackingService:
             container_volume = self.container_width * self.container_height * self.container_depth
             
             print(f"📦 Container: {self.container_width:.3f}x{self.container_height:.3f}x{self.container_depth:.3f}")
-            print(f"🚪 Door gap: {self.mes_finder.door_gap}m on right side")
             
             # STEP 1: OR-Tools categorization and sorting
             print("📦 Running OR-Tools categorization...")
@@ -716,7 +795,7 @@ class UltimatePackingService:
             self.mes_finder.reset([self.container_width, self.container_height, self.container_depth])
             
             # STEP 3: Multi-phase packing
-            print("📦 Running MES positioning with Z-axis gap filling...")
+            print("📦 Running MES positioning with X-axis first filling...")
             packed_items = []
             unpacked_items = []
             packed_volume = 0.0
@@ -776,7 +855,7 @@ class UltimatePackingService:
                             packed_volume += dimensions[0] * dimensions[1] * dimensions[2]
                             packed_weight += item.get('weight', 0)
                             processed_ids.add(item['id'])
-                            print(f"✅ PHASE 1 packed: {item['id']} at {position}")
+                            print(f"✅ PHASE 1 packed: {item['id']} at X={position[0]:.3f}, Y={position[1]:.3f}, Z={position[2]:.3f}")
                             
                             # Validate space volumes after each placement
                             self._validate_packing_state(container_volume)
@@ -839,7 +918,7 @@ class UltimatePackingService:
                             packed_volume += dimensions[0] * dimensions[1] * dimensions[2]
                             packed_weight += item.get('weight', 0)
                             processed_ids.add(item['id'])
-                            print(f"✅ PHASE 2 packed: {item['id']} at {position}")
+                            print(f"✅ PHASE 2 packed: {item['id']} at X={position[0]:.3f}, Y={position[1]:.3f}, Z={position[2]:.3f}")
                             
                             # Validate space volumes after each placement
                             self._validate_packing_state(container_volume)
@@ -850,8 +929,8 @@ class UltimatePackingService:
                 else:
                     failed_secondary.append(item)
             
-            # ============ PHASE 3: PACK TERTIARY ITEMS (SMALL) WITH AGGRESSIVE Z-AXIS FILLING ============
-            print(f"📦 PHASE 3: Packing {len(tertiary_items)} small items with Z-axis gap filling...")
+            # ============ PHASE 3: PACK TERTIARY ITEMS (SMALL) WITH AGGRESSIVE X-AXIS FILLING ============
+            print(f"📦 PHASE 3: Packing {len(tertiary_items)} small items with X-axis gap filling...")
             
             # Combine failed secondary with tertiary items
             phase3_items = failed_secondary + tertiary_items
@@ -866,7 +945,7 @@ class UltimatePackingService:
                 items_packed = False
                 pass_count += 1
                 
-                print(f"📦 PHASE 3.{pass_count}: Gap filling pass...")
+                print(f"📦 PHASE 3.{pass_count}: X-axis gap filling pass...")
                 
                 for item in phase3_items[:]:  # Iterate over copy
                     if item['id'] in processed_ids:
@@ -896,8 +975,6 @@ class UltimatePackingService:
                                 position, dimensions, self.placed_items, is_small_item=True
                             )
                             
-                            # FIXED: Removed hardcoded bypass `or dimensions[1] < 0.3` which caused floating items
-                            # All items must have proper support or be on floor
                             if has_support or abs(position[1]) < 0.001:
                                 packed_items.append({
                                     'id': item['id'],
@@ -918,7 +995,7 @@ class UltimatePackingService:
                                 processed_ids.add(item['id'])
                                 phase3_items.remove(item)
                                 items_packed = True
-                                print(f"✅ PHASE 3.{pass_count} packed: {item['id']} at {position}")
+                                print(f"✅ PHASE 3.{pass_count} packed: {item['id']} at X={position[0]:.3f}, Y={position[1]:.3f}, Z={position[2]:.3f}")
                                 
                                 # Validate space volumes after each placement
                                 self._validate_packing_state(container_volume)
@@ -964,60 +1041,63 @@ class UltimatePackingService:
                             if placed:
                                 break
                             
-                            # Try multiple positions within space
                             if (orient_dims[0] <= space.width + 0.001 and
                                 orient_dims[1] <= space.height + 0.001 and
                                 orient_dims[2] <= space.depth + 0.001):
                                 
-                                # Try different Z positions for better gap filling
-                                z_positions = [space.z, space.z + (space.depth - orient_dims[2]) / 2]
+                                # FIXED: Try multiple X and Z positions
+                                x_positions = [space.x, space.x + (space.width - orient_dims[0]) / 2]
+                                z_positions = [space.z, space.z + (space.depth - orient_dims[2])]
                                 
-                                for test_z in z_positions:
-                                    x, y = space.x, space.y
-                                    
-                                    # Check boundaries
-                                    is_valid, _ = self.boundary_validator.is_item_within_container(
-                                        [x, y, test_z], orient_dims,
-                                        [self.container_width, self.container_height, self.container_depth]
-                                    )
-                                    
-                                    if is_valid:
-                                        # Check overlap
-                                        has_overlap, _ = self.overlap_validator.check_item_with_placed(
-                                            [x, y, test_z], orient_dims, self.placed_items
+                                for test_x in x_positions:
+                                    for test_z in z_positions:
+                                        y = space.y
+                                        
+                                        # Check boundaries
+                                        is_valid, _ = self.boundary_validator.is_item_within_container(
+                                            [test_x, y, test_z], orient_dims,
+                                            [self.container_width, self.container_height, self.container_depth]
                                         )
                                         
-                                        if not has_overlap:
-                                            # FIXED: Added support validation to Phase 4
-                                            has_support, _ = self.support_validator.has_support(
-                                                [x, y, test_z], orient_dims, self.placed_items, is_small_item=True
+                                        if is_valid:
+                                            # Check overlap
+                                            has_overlap, _ = self.overlap_validator.check_item_with_placed(
+                                                [test_x, y, test_z], orient_dims, self.placed_items
                                             )
                                             
-                                            if has_support or abs(y) < 0.001:
-                                                # Final attempt - pack it
-                                                packed_items.append({
-                                                    'id': item['id'],
-                                                    'position': [x, y, test_z],
-                                                    'dimensions': orient_dims,
-                                                    'rotation': rotation_map.get(orient_idx, [0, 0, 0]),
-                                                    'original_item': item
-                                                })
+                                            if not has_overlap:
+                                                # Add support validation
+                                                has_support, _ = self.support_validator.has_support(
+                                                    [test_x, y, test_z], orient_dims, self.placed_items, is_small_item=True
+                                                )
                                                 
-                                                self.placed_items.append({
-                                                    'id': item['id'],
-                                                    'position': [x, y, test_z],
-                                                    'dimensions': orient_dims
-                                                })
-                                                
-                                                packed_volume += orient_dims[0] * orient_dims[1] * orient_dims[2]
-                                                packed_weight += item.get('weight', 0)
-                                                processed_ids.add(item['id'])
-                                                placed = True
-                                                print(f"✅ PHASE 4 packed: {item['id']}")
-                                                
-                                                # Validate space volumes after each placement
-                                                self._validate_packing_state(container_volume)
-                                                break
+                                                if has_support or abs(y) < 0.001:
+                                                    # Final attempt - pack it
+                                                    packed_items.append({
+                                                        'id': item['id'],
+                                                        'position': [test_x, y, test_z],
+                                                        'dimensions': orient_dims,
+                                                        'rotation': rotation_map.get(orient_idx, [0, 0, 0]),
+                                                        'original_item': item
+                                                    })
+                                                    
+                                                    self.placed_items.append({
+                                                        'id': item['id'],
+                                                        'position': [test_x, y, test_z],
+                                                        'dimensions': orient_dims
+                                                    })
+                                                    
+                                                    packed_volume += orient_dims[0] * orient_dims[1] * orient_dims[2]
+                                                    packed_weight += item.get('weight', 0)
+                                                    processed_ids.add(item['id'])
+                                                    placed = True
+                                                    print(f"✅ PHASE 4 packed: {item['id']} at X={test_x:.3f}, Y={y:.3f}, Z={test_z:.3f}")
+                                                    
+                                                    # Validate space volumes after each placement
+                                                    self._validate_packing_state(container_volume)
+                                                    break
+                                    if placed:
+                                        break
             
             # Add any remaining items to unpacked
             for item in items_data:
@@ -1046,7 +1126,7 @@ class UltimatePackingService:
             print(f"   - Remaining spaces: {len(remaining_spaces)} (volume: {remaining_space_volume:.2f}m³)")
             print(f"   - Time: {(time.time() - start_time)*1000:.1f}ms")
             
-            # Final validation
+            # Final validation - rebuild if corruption detected
             if remaining_space_volume > container_volume * 1.01:
                 print("⚠️ Warning: Remaining space volume exceeds container volume - rebuilding spaces...")
                 self._rebuild_spaces_from_placed_items()
@@ -1300,7 +1380,8 @@ class UltimatePackingService:
             'rotation_mode': 'automatic',
             'rotation_stats': rotation_stats,
             'door_gap_maintained': True,
-            'z_axis_filling': True,
+            'x_axis_filling': True,
+            'z_axis_back_filling': True,
             'phases_completed': 4
         }
         

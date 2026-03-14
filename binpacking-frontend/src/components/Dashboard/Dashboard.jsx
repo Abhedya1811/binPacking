@@ -46,7 +46,9 @@ import {
   DragIndicator as DragIndicatorIcon,
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -55,7 +57,6 @@ import Sidebar from '../Layout/Sidebar';
 import BinVisualizerWrapper from '../Packing3D/BinVisualizerWrapper';
 import BinInputForm from '../PackingForm/BinInputForm';
 import ItemInputForm from '../PackingForm/ItemInputForm';
-import StatisticsPanel from './StatisticsPanel';
 import PackingList from './PackingList';
 import PackingControls from '../PackingForm/PackingControls';
 import PackingReportGenerator from '../Packing3D/PackingReportGenerator';
@@ -117,12 +118,17 @@ const Dashboard = () => {
   const [minResultsHeight] = useState(250);
   const [maxResultsHeight] = useState(500);
 
-  // FIXED: Create all refs
+  // Full Screen Mode State
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [savedConfigWidth, setSavedConfigWidth] = useState(600);
+  const [savedIsCollapsed, setSavedIsCollapsed] = useState(false);
+  const [savedIsResultsVisible, setSavedIsResultsVisible] = useState(true);
+
+  // Create all refs
   const packingReportRef = useRef(null);
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
-  const visualizerRef = useRef(null); // ← ADD THIS LINE - This was missing!
-
+  const visualizerRef = useRef(null);
   const resizerRef = useRef(null);
   const configPanelRef = useRef(null);
   const resultsResizerRef = useRef(null);
@@ -156,6 +162,28 @@ const Dashboard = () => {
     handleMenuClose();
   };
 
+  // Toggle Full Screen Mode
+  const toggleFullScreen = () => {
+    if (!isFullScreen) {
+      // Entering full screen - save current states
+      setSavedConfigWidth(configWidth);
+      setSavedIsCollapsed(isCollapsed);
+      setSavedIsResultsVisible(isResultsVisible);
+      
+      // Hide both panels
+      setIsCollapsed(true);
+      setIsResultsVisible(false);
+      setConfigWidth(48);
+      setIsFullScreen(true);
+    } else {
+      // Exiting full screen - restore saved states
+      setIsCollapsed(savedIsCollapsed);
+      setIsResultsVisible(savedIsResultsVisible);
+      setConfigWidth(savedConfigWidth);
+      setIsFullScreen(false);
+    }
+  };
+
   // Original App.jsx functions
   const handleCalculate = async () => {
     try {
@@ -171,10 +199,10 @@ const Dashboard = () => {
       const result = await calculatePacking(containerSize, items, packingOptions);
       localStorage.removeItem('packingSavedAngles');
     
-    // If you have access to the PackingReportGenerator ref, also clear its state
-    if (packingReportRef.current && packingReportRef.current.clearSavedAngles) {
-      packingReportRef.current.clearSavedAngles();
-    }
+      if (packingReportRef.current && packingReportRef.current.clearSavedAngles) {
+        packingReportRef.current.clearSavedAngles();
+      }
+      
       setNotification({
         open: true,
         message: `Packing calculated! Efficiency: ${result.efficiency?.toFixed(1) || '0'}%`,
@@ -220,7 +248,7 @@ const Dashboard = () => {
 
   // Left panel resize handlers
   const handleMouseDown = (e) => {
-    if (isCollapsed) return;
+    if (isCollapsed || isFullScreen) return;
     
     e.preventDefault();
     setIsResizing(true);
@@ -246,6 +274,8 @@ const Dashboard = () => {
 
   // Results panel resize handlers
   const handleResultsMouseDown = (e) => {
+    if (isFullScreen) return;
+    
     e.preventDefault();
     setIsResizingResults(true);
     
@@ -270,6 +300,8 @@ const Dashboard = () => {
 
   // Toggle results visibility
   const toggleResults = () => {
+    if (isFullScreen) return;
+    
     if (isResultsVisible) {
       setIsResultsVisible(false);
     } else {
@@ -296,7 +328,6 @@ const Dashboard = () => {
         await packingReportRef.current.generateHTML();
         break;
       case 'json':
-        // Handle JSON export
         const jsonStr = JSON.stringify(packingResult, null, 2);
         const blob = new Blob([jsonStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -411,13 +442,19 @@ const Dashboard = () => {
 
             {/* Right - Admin Actions */}
             <Box className="header-right">
+              {/* Full Screen Toggle Button */}
+              <Tooltip title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}>
+                <IconButton onClick={toggleFullScreen} size="small">
+                  {isFullScreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                </IconButton>
+              </Tooltip>
+              
               <Tooltip title="Refresh">
-                <IconButton  onClick={() => window.location.reload()}  size="small">
-                  <RefreshIcon  />
+                <IconButton onClick={() => window.location.reload()} size="small">
+                  <RefreshIcon />
                 </IconButton>
               </Tooltip>
    
-              
               <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
               
               <Box className="admin-profile">
@@ -544,7 +581,7 @@ const Dashboard = () => {
               width: `${configWidth}px`,
               minWidth: `${configWidth}px`,
               height: '100%',
-              display: 'flex',
+              display: isFullScreen ? 'none' : 'flex',
               position: 'relative',
               transition: isResizing ? 'none' : 'width 0.2s ease'
             }}
@@ -602,7 +639,7 @@ const Dashboard = () => {
                 /* Expanded View */
                 <>
                   {/* Config Panel Header */}
-                  <Box className="config-header"sx={{mr: 2}}>
+                  <Box className="config-header" sx={{mr: 2}}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <SettingsApplicationsIcon sx={{ color: 'primary.main', fontSize: 20 }} />
                       <Typography variant="subtitle1" fontWeight="600">
@@ -944,7 +981,7 @@ const Dashboard = () => {
               ref={visualizationRef}
               className="visualization-container"
               sx={{
-                height: isResultsVisible && packingResult 
+                height: isResultsVisible && packingResult && !isFullScreen
                   ? `calc(100% - ${resultsHeight}px - 8px)`
                   : '100%',
                 position: 'relative',
@@ -958,7 +995,7 @@ const Dashboard = () => {
             >
               <Box sx={{ width: '100%', height: '100%' }}>
                 <BinVisualizerWrapper
-                  ref={visualizerRef} // ← Pass the visualizerRef here
+                  ref={visualizerRef}
                   key={visualizerKey}
                   packingResult={packingResult}
                   isLoading={loading}
@@ -999,33 +1036,12 @@ const Dashboard = () => {
                       </Badge>
                     </IconButton>
                   </Tooltip>
-                  
-                  <Tooltip title="Reset View">
-                    <IconButton 
-                      size="small"
-                      onClick={() => {
-                        // Reset view through the ref if available
-                        if (visualizerRef.current && visualizerRef.current.resetView) {
-                          visualizerRef.current.resetView();
-                        }
-                      }}
-                      sx={{ 
-                        bgcolor: 'background.paper',
-                        boxShadow: 2,
-                        '&:hover': { bgcolor: 'background.paper' }
-                      }}
-                    >
-                      <ThreeDIcon />
-                    </IconButton>
-                  </Tooltip>
                 </Box>
-                
-                
               </Box>
             </Box>
             
             {/* Results Panel Resizer Handle */}
-            {packingResult && isResultsVisible && (
+            {packingResult && isResultsVisible && !isFullScreen && (
               <Box
                 ref={resultsResizerRef}
                 onMouseDown={handleResultsMouseDown}
@@ -1056,7 +1072,7 @@ const Dashboard = () => {
             )}
             
             {/* Results Panel */}
-            {packingResult && isResultsVisible && (
+            {packingResult && isResultsVisible && !isFullScreen && (
               <Fade in={isResultsVisible}>
                 <Paper 
                   sx={{
@@ -1110,24 +1126,7 @@ const Dashboard = () => {
                   
                   <Box sx={{ overflowY: 'auto', flex: 1 }}>
                     <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <StatisticsPanel
-                          containerStats={{
-                            volume: containerSize.width * containerSize.height * containerSize.depth
-                          }}
-                          packingStats={{
-                            packedItems: packingResult.packedCount || 0,
-                            totalItems: packingResult.totalItems || items.length,
-                            efficiency: packingResult.efficiency || 0,
-                            volumeUsed: packingResult.volumeUsed || 0
-                          }}
-                          algorithmStats={{
-                            name: packingOptions.algorithm
-                          }}
-                        />
-                      </Grid>
-                      
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} md={12}>
                         <PackingList
                           packingResult={packingResult}
                           onViewItem={(item) => console.log('View item:', item)}
@@ -1141,7 +1140,7 @@ const Dashboard = () => {
             )}
             
             {/* Button to show results if hidden */}
-            {packingResult && !isResultsVisible && (
+            {packingResult && !isResultsVisible && !isFullScreen && (
               <Box
                 sx={{
                   position: 'absolute',
@@ -1174,11 +1173,11 @@ const Dashboard = () => {
       {/* PackingReportGenerator with ref */}
       {packingResult && (
         <PackingReportGenerator
-        ref={packingReportRef}
-        packingResult={packingResult}
-        containerRef={containerRef}
-        canvasRef={visualizerRef}
-        showCamera={false}
+          ref={packingReportRef}
+          packingResult={packingResult}
+          containerRef={containerRef}
+          canvasRef={visualizerRef}
+          showCamera={false}
         />
       )}
       

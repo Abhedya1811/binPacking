@@ -6,13 +6,80 @@ import {
   Grid, 
   Html, 
   Line,
+  Text,
   useHelper
 } from '@react-three/drei';
 import * as THREE from 'three';
 import PackingReportGenerator from './PackingReportGenerator';
 
+// ==================== DOOR INDICATOR COMPONENT ====================
+const DoorIndicator = ({ width, height, depth, doorGap = 0.3 }) => {
+  const doorRef = useRef();
+  
+  return (
+    <group position={[width/2, height/2, 0]}>
+      {/* Door frame - white outline */}
+      <Line
+        points={[
+          [-width*0.4, -height*0.3, 0.05],
+          [width*0.4, -height*0.3, 0.05],
+          [width*0.4, height*0.3, 0.05],
+          [-width*0.4, height*0.3, 0.05],
+          [-width*0.4, -height*0.3, 0.05]
+        ]}
+        color="#ffffff"
+        lineWidth={2}
+      />
+      
+      {/* Door arch */}
+      <Line
+        points={[
+          [-width*0.35, height*0.3, 0.05],
+          [0, height*0.4, 0.05],
+          [width*0.35, height*0.3, 0.05]
+        ]}
+        color="#ffffff"
+        lineWidth={2}
+      />
+      
+      {/* "DOOR" text */}
+      <Text
+        position={[0, 0, 0.1]}
+        fontSize={0.5}
+        color="#ffffff"
+        anchorX="center"
+        anchorY="middle"
+        fontWeight="bold"
+      >
+        DOOR
+      </Text>
+      
+      {/* Door gap indicator (orange forbidden zone) */}
+      <mesh position={[0, 0, doorGap/2]}>
+        <boxGeometry args={[width, height, doorGap]} />
+        <meshStandardMaterial 
+          color="#ff6b6b" 
+          transparent 
+          opacity={0.15}
+        />
+      </mesh>
+      
+      {/* Gap measurement text */}
+      <Text
+        position={[width*0.45, height*0.4, doorGap/2]}
+        fontSize={0.3}
+        color="#ff6b6b"
+        anchorX="left"
+        anchorY="top"
+      >
+        {`${doorGap}m gap`}
+      </Text>
+    </group>
+  );
+};
+
 // ==================== CONTAINER COMPONENT ====================
-const Container = ({ width, height, depth }) => {
+const Container = ({ width, height, depth, doorGap = 0.3 }) => {
   const containerRef = useRef();
   
   return (
@@ -75,11 +142,14 @@ const Container = ({ width, height, depth }) => {
           <meshBasicMaterial color="#ff0000" />
         </mesh>
       ))}
+      
+      {/* Door indicator at front */}
+      <DoorIndicator width={width} height={height} depth={depth} doorGap={doorGap} />
     </group>
   );
 };
 
-// ==================== PACKED ITEM COMPONENT - FIXED HOVER ====================
+// ==================== PACKED ITEM COMPONENT - WITH CURSOR CHANGE ====================
 const PackedItem = ({ item, index, containerDims, onHover }) => {
   const meshRef = useRef();
   const [hovered, setHovered] = useState(false);
@@ -110,14 +180,13 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
   
   return (
     <group>
-      {/* Main item mesh - FIXED HOVER */}
+      {/* Main item mesh */}
       <mesh
         ref={meshRef}
         position={[centerX, centerY, centerZ]}
         rotation={rotation}
         userData={{ isPackedItem: true, name, index }}
         onPointerOver={(e) => {
-          // Stop propagation to prevent parent elements from receiving the event
           e.stopPropagation();
           setHovered(true);
           onHover({
@@ -129,21 +198,24 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
             isUnpacked: false,
             rotation: { x: rotX, y: rotY, z: rotZ }
           });
+          // Change cursor on hover
+          document.body.style.cursor = 'pointer';
         }}
         onPointerOut={(e) => {
           e.stopPropagation();
           setHovered(false);
           onHover(null);
+          // Reset cursor
+          document.body.style.cursor = 'default';
         }}
         onPointerMove={(e) => {
-          // Stop propagation to prevent multiple items from being detected
           e.stopPropagation();
         }}
       >
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial
           color={color}
-          emissive={new THREE.Color(0x000000)}
+          emissive={hovered ? new THREE.Color(color).multiplyScalar(0.2) : new THREE.Color(0x000000)}
           roughness={0.4}
           metalness={0.1}
         />
@@ -158,21 +230,12 @@ const PackedItem = ({ item, index, containerDims, onHover }) => {
         <lineBasicMaterial color={!isWithinBounds ? "#ff0000" : "#000000"} />
       </lineSegments>
       
-      {/* Hover highlight - only show for this specific item */}
-      {hovered && (
-        <lineSegments
-          position={[centerX, centerY, centerZ]}
-          rotation={rotation}
-        >
-          <edgesGeometry args={[new THREE.BoxGeometry(width + 0.05, height + 0.05, depth + 0.05)]} />
-          <lineBasicMaterial color="#ffffff" linewidth={2} />
-        </lineSegments>
-      )}
+      {/* NO boundary change on hover - removed the white outline */}
     </group>
   );
 };
 
-// ==================== UNPACKED ITEM COMPONENT - FIXED HOVER ====================
+// ==================== UNPACKED ITEM COMPONENT - WITH CURSOR CHANGE ====================
 const UnpackedItem = ({ item, index, containerDims, onHover }) => {
   const meshRef = useRef();
   const [hovered, setHovered] = useState(false);
@@ -217,11 +280,15 @@ const UnpackedItem = ({ item, index, containerDims, onHover }) => {
           isUnpacked: true,
           reason
         });
+        // Change cursor on hover
+        document.body.style.cursor = 'pointer';
       }}
       onPointerOut={(e) => {
         e.stopPropagation();
         setHovered(false);
         onHover(null);
+        // Reset cursor
+        document.body.style.cursor = 'default';
       }}
       onPointerMove={(e) => {
         e.stopPropagation();
@@ -230,7 +297,7 @@ const UnpackedItem = ({ item, index, containerDims, onHover }) => {
       <boxGeometry args={[width, height, depth]} />
       <meshStandardMaterial
         color={color}
-        emissive={new THREE.Color(0x000000)}
+        emissive={hovered ? new THREE.Color(color).multiplyScalar(0.2) : new THREE.Color(0x000000)}
         roughness={0.4}
         metalness={0.1}
       />
@@ -241,13 +308,7 @@ const UnpackedItem = ({ item, index, containerDims, onHover }) => {
         <lineBasicMaterial color="#440000" />
       </lineSegments>
       
-      {/* Hover highlight */}
-      {hovered && (
-        <lineSegments>
-          <edgesGeometry args={[new THREE.BoxGeometry(width + 0.05, height + 0.05, depth + 0.05)]} />
-          <lineBasicMaterial color="#ffff00" />
-        </lineSegments>
-      )}
+      {/* NO boundary change on hover - removed the yellow outline */}
     </mesh>
   );
 };
@@ -267,6 +328,18 @@ const UnpackedArea = ({ containerDims, show }) => {
   
   return (
     <group>
+      {/* "UNPACKED ITEMS" text */}
+      <Text
+        position={[areaX, areaHeight + 1, areaDepth/2]}
+        fontSize={0.8}
+        color="#ef4444"
+        anchorX="center"
+        anchorY="center"
+        fontWeight="bold"
+      >
+        UNPACKED ITEMS
+      </Text>
+      
       {/* Semi-transparent area */}
       <mesh position={[areaX, areaHeight/2, areaDepth/2]}>
         <boxGeometry args={[areaWidth, areaHeight, areaDepth]} />
@@ -328,20 +401,25 @@ const KeyboardControls = ({ controlsRef }) => {
     a: false,
     s: false,
     d: false,
-    q: false,
-    e: false
+    Shift: false
   });
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key in keys.current) {
+      if (e.key === 'Shift') {
+        keys.current.Shift = true;
+        e.preventDefault();
+      } else if (e.key in keys.current) {
         keys.current[e.key] = true;
         e.preventDefault(); // Prevent page scrolling
       }
     };
 
     const handleKeyUp = (e) => {
-      if (e.key in keys.current) {
+      if (e.key === 'Shift') {
+        keys.current.Shift = false;
+        e.preventDefault();
+      } else if (e.key in keys.current) {
         keys.current[e.key] = false;
         e.preventDefault();
       }
@@ -372,30 +450,54 @@ const KeyboardControls = ({ controlsRef }) => {
     right.y = 0;
     right.normalize();
     
-    const up = new THREE.Vector3(0, 1, 0);
-    
     // Calculate movement
     const moveDelta = new THREE.Vector3(0, 0, 0);
     
-    // Arrow keys and WASD
-    if (keys.current.ArrowUp || keys.current.w) {
+    // If Shift is pressed, use ArrowUp/Down for vertical movement
+    if (keys.current.Shift) {
+      // Shift + ArrowUp = move up
+      if (keys.current.ArrowUp) {
+        moveDelta.y += moveSpeed;
+      }
+      // Shift + ArrowDown = move down
+      if (keys.current.ArrowDown) {
+        moveDelta.y -= moveSpeed;
+      }
+      // Regular arrow keys still work for horizontal movement with Shift
+      if (keys.current.ArrowLeft) {
+        moveDelta.sub(right.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys.current.ArrowRight) {
+        moveDelta.add(right.clone().multiplyScalar(moveSpeed));
+      }
+    } else {
+      // Without Shift: Arrow keys and WASD for horizontal movement
+      if (keys.current.ArrowUp || keys.current.w) {
+        moveDelta.add(forward.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys.current.ArrowDown || keys.current.s) {
+        moveDelta.sub(forward.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys.current.ArrowLeft || keys.current.a) {
+        moveDelta.sub(right.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys.current.ArrowRight || keys.current.d) {
+        moveDelta.add(right.clone().multiplyScalar(moveSpeed));
+      }
+    }
+    
+    // WASD always work for horizontal movement regardless of Shift
+    if (keys.current.w) {
       moveDelta.add(forward.clone().multiplyScalar(moveSpeed));
     }
-    if (keys.current.ArrowDown || keys.current.s) {
+    if (keys.current.s) {
       moveDelta.sub(forward.clone().multiplyScalar(moveSpeed));
     }
-    if (keys.current.ArrowLeft || keys.current.a) {
+    if (keys.current.a) {
       moveDelta.sub(right.clone().multiplyScalar(moveSpeed));
     }
-    if (keys.current.ArrowRight || keys.current.d) {
+    if (keys.current.d) {
       moveDelta.add(right.clone().multiplyScalar(moveSpeed));
-    }
-    // Vertical movement
-    if (keys.current.q) {
-      moveDelta.y -= moveSpeed;
-    }
-    if (keys.current.e) {
-      moveDelta.y += moveSpeed;
     }
     
     if (moveDelta.length() > 0) {
@@ -445,12 +547,14 @@ const CameraController = ({ viewMode, containerDims, showUnpackedArea, controlsR
         targetPos = [center[0] + 30, center[1] + 10, center[2] + 20];
         controls.enableRotate = true;
         break;
-      default: // 3D
-        if (showUnpackedArea) {
-          targetPos = [center[0] + 15, height * 1.8, depth * 1.8];
-        } else {
-          targetPos = [width * 0.8, height * 1.2, depth * 1.2];
-        }
+      default: // 3D - START FROM DOOR SIDE (front-left view)
+        // Position camera to look at the container from the door side (front-left)
+        // The door is at the front (positive Z direction based on DoorIndicator position at [width/2, height/2, 0])
+        targetPos = [
+          center[0] - width * 0.3, // Slightly left of center
+          center[1] + height * 0.3, // Slightly above center
+          center[2] - depth * 0.8  // Position in front of the container (negative Z to see the door)
+        ];
         controls.enableRotate = true;
         break;
     }
@@ -474,6 +578,7 @@ const CollapsibleStatsCard = ({ packingResult, outOfBoundsCount }) => {
   const algorithm = packingResult?.statistics?.algorithm || 'standard';
   const container = packingResult?.visualization_data?.container || { width: 0, height: 0, depth: 0 };
   const containerVolume = (container.width * container.height * container.depth).toFixed(2);
+  const doorGap = container.door_gap || 0.3;
 
   return (
     <div style={{
@@ -534,6 +639,11 @@ const CollapsibleStatsCard = ({ packingResult, outOfBoundsCount }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontWeight: '600', color: '#475569' }}>Container:</span>
             <span style={{ fontWeight: '500', color: '#0f172a' }}>{containerVolume} m³</span>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontWeight: '600', color: '#475569' }}>Door Gap:</span>
+            <span style={{ fontWeight: '500', color: '#ff6b6b' }}>{doorGap} m (front)</span>
           </div>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -626,7 +736,8 @@ const HoverTooltip = ({ item }) => {
       maxWidth: '300px',
       boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
       border: item.isOutOfBounds ? '2px solid #ef4444' : (item.isUnpacked ? '1px solid #ef4444' : '1px solid #334155'),
-      backdropFilter: 'blur(8px)'
+      backdropFilter: 'blur(8px)',
+      pointerEvents: 'none'
     }}>
       <div style={{ 
         fontWeight: '700', 
@@ -812,6 +923,10 @@ const ViewControls = ({ viewMode, setViewMode, showUnpackedArea, setShowUnpacked
           <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '3px' }}></div>
           <span style={{ fontSize: '11px', color: '#475569' }}>Packed</span>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ width: '12px', height: '12px', background: '#ff6b6b', borderRadius: '3px' }}></div>
+          <span style={{ fontSize: '11px', color: '#475569' }}>Door Gap</span>
+        </div>
         {outOfBoundsCount > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '3px' }}></div>
@@ -826,7 +941,7 @@ const ViewControls = ({ viewMode, setViewMode, showUnpackedArea, setShowUnpacked
         )}
       </div>
       
-      {/* Controls hint */}
+      {/* Controls hint - UPDATED with Shift+Arrow instructions */}
       <div style={{
         position: 'absolute',
         bottom: '140px',
@@ -844,7 +959,7 @@ const ViewControls = ({ viewMode, setViewMode, showUnpackedArea, setShowUnpacked
         backdropFilter: 'blur(8px)'
       }}>
         <span>🖱️</span>
-        <span>Mouse: rotate/zoom • Arrow Keys: move camera • Q/E: up/down</span>
+        <span>Mouse: rotate/zoom • Hover: pointer cursor • Arrow Keys: move • Shift+Arrow: up/down</span>
       </div>
 
       {/* Toggle unpacked button */}
@@ -942,6 +1057,13 @@ const BinVisualizer = forwardRef(({ packingResult, isLoading, originalItems = []
     }
   }, [packingResult]);
 
+  // Reset cursor on unmount
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = 'default';
+    };
+  }, []);
+
   if (isLoading) {
     return (
       <div style={{ 
@@ -987,13 +1109,15 @@ const BinVisualizer = forwardRef(({ packingResult, isLoading, originalItems = []
   const container = packingResult.visualization_data?.container || {
     width: 16.4,
     height: 8,
-    depth: 10
+    depth: 10,
+    door_gap: 0.3
   };
   
   const packedItems = packingResult.visualization_data?.items || [];
   const unpackedItems = packingResult.visualization_data?.unpacked_items || [];
   
   const containerDims = [container.width, container.height, container.depth];
+  const doorGap = container.door_gap || 0.3;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#f8fafc' }} ref={containerRef}>
@@ -1046,8 +1170,13 @@ const BinVisualizer = forwardRef(({ packingResult, isLoading, originalItems = []
           position={[containerDims[0]/2, 0, containerDims[2]/2]}
         />
         
-        {/* Container */}
-        <Container width={containerDims[0]} height={containerDims[1]} depth={containerDims[2]} />
+        {/* Container with Door Indicator */}
+        <Container 
+          width={containerDims[0]} 
+          height={containerDims[1]} 
+          depth={containerDims[2]} 
+          doorGap={doorGap}
+        />
         
         {/* Packed Items */}
         {packedItems.map((item, index) => (
